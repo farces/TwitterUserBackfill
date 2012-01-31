@@ -30,15 +30,13 @@ my $posts_per_request = 125;
 my $request_rate = 2; #seconds between requests
 
 sub process {
-    #&process($statuses_from_user_timeline);
+    #&process($statuses_from_user_timeline,\&post_process_func);
     #Subroutine for storing statuses to whichever data store required.
-    #Returns: lowest inserted ID, or an empty array if none.
-    my @statuses = @_;
+    #Returns: lowest inserted ID, or an empty array if none. Lowest ID
+    my ($statuses,$func) = @_;
     my @ids;
-    
-    for my $status (@statuses) {
-        #do your data storage here, as an example we are just outputting status text      
-        say $status->{text};
+    for my $status (@$statuses) {
+        $func->($status); #perform post-process action on $status
         push @ids, int($status->{id});
     }
     my $low = min @ids;
@@ -74,17 +72,16 @@ sub twitter_timeline {
 }
 
 sub backfill {
-    #&backfill('id');
+    #&backfill('id',\&post_process_func);
     #Gets all historical tweets for user.
-	my ($name) = @_;
+	my ($name, $func) = @_;
     my $statuses;
     $count=0;
-
     say "Get $name" unless $no_debug;
     
     $statuses = &twitter_timeline({id => "$name", count => $posts_per_request, });
 
-    my $min = &process(@$statuses);
+    my $min = &process($statuses,$func);
     if (not defined $min) {
         say "Error retrieving first batch for $name. Skipping." unless $no_debug;
         return;
@@ -99,7 +96,7 @@ sub backfill {
                                  max_id => $min,});
         last unless $statuses;
 
-        $new_min = &process(@$statuses);
+        $new_min = &process($statuses,$func);
         last unless ($new_min < $min);
         
         last if (scalar(@$statuses) < ($posts_per_request-25));
@@ -108,4 +105,12 @@ sub backfill {
     }
 }
 
-&backfill('hambargler');
+sub custom_action {
+    #dummy function that just prints the 'text' field of each status
+    #it is passed. Place any of your data storage actions here (one call
+    #per status)
+    my $status = shift;
+    say $status->{text};
+}
+
+&backfill('hambargler',\&custom_action);
