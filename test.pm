@@ -10,7 +10,7 @@ use T_B; #use twitter backfill package
 #a list of available fields.
 sub my_sub {
     my $status = shift;
-    say $status->{text};
+    say $status->{created_at} . " :: " . $status->{text};
 }
 
 binmode STDOUT, ":utf8"; #required for STDOUT of some non-english characters
