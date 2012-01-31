@@ -1,4 +1,3 @@
-#!/usr/bin/perl
 #A semi-optimal script for retrieving a given users entire user_timeline.
 
 #Algorithim requests:
@@ -8,32 +7,21 @@
 #~125 before Twitter starts returning additional 502 responses. 
 #Default: 125.
 
+package T_B;
+
 use strict;
 use warnings;
 use 5.010;
-use Net::Twitter::Lite;
+use Net::Twitter::Lite qw/new user_timeline/;
 use List::Util qw/min/;
 use Scalar::Util qw/blessed/;
-
-binmode STDOUT, ":utf8";
-
-my $nt = Net::Twitter::Lite->new(
-    consumer_key    => "your_consumer_key",
-    consumer_secret => "your_consumer_secret",
-    access_token    => "your_access_token",
-    access_token_secret => "your_access_token_secret"
-);
-
-my $no_debug = 1;
-my $count;
-my $posts_per_request = 125;
-my $request_rate = 2; #seconds between requests
 
 sub process {
     #&process($statuses_from_user_timeline,\&post_process_func);
     #Subroutine for storing statuses to whichever data store required.
     #Returns: lowest inserted ID, or an empty array if none. Lowest ID
-    my ($statuses,$func) = @_;
+    #required for next user_timeline request.
+    my ($self,$statuses,$func) = @_;
     my @ids;
     for my $status (@$statuses) {
         $func->($status); #perform post-process action on $status
@@ -47,19 +35,19 @@ sub twitter_timeline {
     #$statuses = &twitter_timeline({user_timeline arguments});
     #Calls user_timeline, handling any returned errors and retrying if required.
     #Return: the result of user_timeline() unmodified.
-    my $args = shift;
+    my ($self,$args) = @_;
     my $statuses;
 
     for (my $wait=2;$wait<=128;$wait*=2) {
-        $count++;
-        say "Request $count." unless $no_debug;
+        $self->{count}++;
+        say "Request $self->{count}." if $self->{debug};
         $statuses = eval {
-            $nt->user_timeline($args);
+            $self->{twitter_i}->user_timeline($args);
         };
         if (my $error = $@) {
             if (blessed $error && $error->isa("Net::Twitter::Lite::Error")
                  && $error->code() == 502) {
-                say "502 error, retrying in $wait seconds." unless $no_debug;
+                say "502 error, retrying in $wait seconds." if $self->{debug};
                 sleep($wait);
                 next;
             }
@@ -74,43 +62,75 @@ sub twitter_timeline {
 sub backfill {
     #&backfill('id',\&post_process_func);
     #Gets all historical tweets for user.
-	my ($name, $func) = @_;
+    my ($self, $name, $func) = @_;
     my $statuses;
-    $count=0;
-    say "Get $name" unless $no_debug;
+    $self->{count}=0;
+    say "Get $name" if $self->{debug};
     
-    $statuses = &twitter_timeline({id => "$name", count => $posts_per_request, });
+    $statuses = $self->twitter_timeline({id => "$name", count => $self->{posts_per_request}, });
 
-    my $min = &process($statuses,$func);
+    my $min = $self->process($statuses,$func);
     if (not defined $min) {
-        say "Error retrieving first batch for $name. Skipping." unless $no_debug;
+        say "Error retrieving first batch for $name. Skipping." if $self->{debug};
         return;
     }
 
-    return 0 if (scalar(@$statuses) < ($posts_per_request-25));
+    return 0 if (scalar(@$statuses) < ($self->{posts_per_request}-25));
 
     my $new_min;
     while(1) {
-        $statuses = &twitter_timeline({id => "$name", 
-                                 count => $posts_per_request, 
+        $statuses = $self->twitter_timeline({id => "$name", 
+                                 count => $self->{posts_per_request}, 
                                  max_id => $min,});
         last unless $statuses;
 
-        $new_min = &process($statuses,$func);
+        $new_min = $self->process($statuses,$func);
         last unless ($new_min < $min);
         
-        last if (scalar(@$statuses) < ($posts_per_request-25));
+        last if (scalar(@$statuses) < ($self->{posts_per_request}-25));
         $min = $new_min;
-        sleep($request_rate);
+        sleep($self->{request_rate});
     }
 }
 
-sub custom_action {
+sub default_action {
     #dummy function that just prints the 'text' field of each status
     #it is passed. Place any of your data storage actions here (one call
     #per status)
-    my $status = shift;
+    my ($self,$status) = @_;
     say $status->{text};
 }
 
-&backfill('hambargler',\&custom_action);
+sub new {
+    my ($class, %args) = @_;
+    my $new = bless {
+        posts_per_request   => 125,
+        request_rate        => 2,
+        count               => 0,
+        debug               => 0,
+        twitter_i           => undef,
+        %args
+    }, $class;
+    return $new;
+}
+
+sub connect {
+    my $self = shift;
+    $self->{twitter_i} = Net::Twitter::Lite->new(
+        consumer_key => $self->{consumer_key},
+        consumer_secret => $self->{consumer_secret},
+        access_token    => $self->{access_token},
+        access_token_secret => $self->{access_token_secret}
+    );
+}
+
+
+#my %test = ('users' => {
+#		'snakebro' => 1, 
+#		'jerkcity' => 0,
+#        'sdkjghsdkghsdglsdk' => 0,});
+
+#foreach (keys %{$test{'users'}}) {
+#    &backfill($_);
+#}
+1;
