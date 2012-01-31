@@ -124,13 +124,4 @@ sub connect {
     );
 }
 
-
-#my %test = ('users' => {
-#		'snakebro' => 1, 
-#		'jerkcity' => 0,
-#        'sdkjghsdkghsdglsdk' => 0,});
-
-#foreach (keys %{$test{'users'}}) {
-#    &backfill($_);
-#}
 1;
