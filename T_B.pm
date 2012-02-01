@@ -83,9 +83,9 @@ sub backfill {
                                  count => $self->{posts_per_request}, 
                                  max_id => $min,});
         last unless $statuses;
-        last if scalar($statuses) > 0;
 
         $new_min = $self->_process($statuses,$func);
+        last if not defined $new_min;
         last unless ($new_min < $min);
         
         last if (scalar(@$statuses) < ($self->{posts_per_request}-25));
