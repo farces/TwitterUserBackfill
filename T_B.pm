@@ -109,19 +109,15 @@ sub new {
         count               => 0,
         debug               => 0,
         twitter_i           => undef,
-        %args
+        net_twitter_args    => \%args
     }, $class;
     return $new;
 }
 
 sub connect {
     my $self = shift;
-    $self->{twitter_i} = Net::Twitter::Lite->new(
-        consumer_key => $self->{consumer_key},
-        consumer_secret => $self->{consumer_secret},
-        access_token    => $self->{access_token},
-        access_token_secret => $self->{access_token_secret}
-    );
+    $self->{twitter_i} = Net::Twitter::Lite->new(%{$self->{net_twitter_args}});
+    return $self;
 }
 
 1;

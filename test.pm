@@ -22,8 +22,8 @@ my $x = T_B->new(
    consumer_secret => "",
    access_token    => "",
    access_token_secret => ""
-);
-$x->connect();
+)->connect();
+#$x->connect();
 #
 
 #request backfill of tweets for user 'hambargler', with my_sub being called
