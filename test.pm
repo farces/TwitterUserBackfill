@@ -17,15 +17,16 @@ binmode STDOUT, ":utf8"; #required for STDOUT of some non-english characters
 
 #connect to twitter API
 #requires your own Twitter API keys, freely available from the twitter dev site.
+say "Creating T_B instance and connect to Twitter API...";
 my $x = T_B->new(
    consumer_key    => "",
    consumer_secret => "",
    access_token    => "",
    access_token_secret => ""
 )->connect();
-#$x->connect();
 #
 
 #request backfill of tweets for user 'hambargler', with my_sub being called
 #to act on each individual status.
-$x->backfill('hambargler',\&my_sub);
+say "Requesting all Tweets for sample user...";
+$x->backfill('wayfu',\&my_sub);

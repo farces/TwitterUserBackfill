@@ -16,7 +16,7 @@ use Net::Twitter::Lite qw/new user_timeline/;
 use List::Util qw/min/;
 use Scalar::Util qw/blessed/;
 
-sub process {
+sub _process {
     #&process($statuses_from_user_timeline,\&post_process_func);
     #Subroutine for storing statuses to whichever data store required.
     #Returns: lowest inserted ID, or an empty array if none. Lowest ID
@@ -31,7 +31,7 @@ sub process {
     return $low;
 }
 
-sub twitter_timeline {
+sub _twitter_timeline {
     #$statuses = &twitter_timeline({user_timeline arguments});
     #Calls user_timeline, handling any returned errors and retrying if required.
     #Return: the result of user_timeline() unmodified.
@@ -67,9 +67,9 @@ sub backfill {
     $self->{count}=0;
     say "Get $name" if $self->{debug};
     
-    $statuses = $self->twitter_timeline({id => "$name", count => $self->{posts_per_request}, });
+    $statuses = $self->_twitter_timeline({id => "$name", count => $self->{posts_per_request}, });
 
-    my $min = $self->process($statuses,$func);
+    my $min = $self->_process($statuses,$func);
     if (not defined $min) {
         say "Error retrieving first batch for $name. Skipping." if $self->{debug};
         return;
@@ -79,12 +79,13 @@ sub backfill {
 
     my $new_min;
     while(1) {
-        $statuses = $self->twitter_timeline({id => "$name", 
+        $statuses = $self->_twitter_timeline({id => "$name", 
                                  count => $self->{posts_per_request}, 
                                  max_id => $min,});
         last unless $statuses;
+        last if scalar($statuses) > 0;
 
-        $new_min = $self->process($statuses,$func);
+        $new_min = $self->_process($statuses,$func);
         last unless ($new_min < $min);
         
         last if (scalar(@$statuses) < ($self->{posts_per_request}-25));
@@ -93,7 +94,7 @@ sub backfill {
     }
 }
 
-sub default_action {
+sub _default_action {
     #dummy function that just prints the 'text' field of each status
     #it is passed. Place any of your data storage actions here (one call
     #per status)
