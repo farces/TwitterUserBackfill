@@ -4,6 +4,9 @@ use 5.010;
 use warnings;
 use T_B; #use twitter backfill package
 use YAML qw/LoadFile/;
+use DBI;
+
+my $dbh = DBI->connect("dbi:SQLite:dbname=twitter.db","","");
 
 #basic subroutine that just prints out the value of the text field in each status
 #this can be changed to do whatever you need with the retrieved data, called once
@@ -11,7 +14,11 @@ use YAML qw/LoadFile/;
 #a list of available fields.
 sub my_sub {
     my $status = shift;
-    say $status->{created_at} . " :: " . $status->{text};
+    my $query = "INSERT INTO tweets (id, user, text) VALUES (?, ?, ?)";
+    my $sth = $dbh->prepare($query);
+    $sth->execute($status->{id},$status->{user}->{screen_name}, $status->{text});
+    $sth->finish;
+    say $status->{id} . " - " . $status->{text};
 }
 
 binmode STDOUT, ":utf8"; #required for STDOUT of some non-english characters
@@ -36,9 +43,19 @@ my $x = T_B->new(
 )->connect();
 #
 
-#request backfill of tweets for user 'hambargler', with my_sub being called
-#to act on each individual status.
-say "Requesting all Tweets for sample user...";
+my $query = "SELECT id FROM tweets WHERE user= ? ORDER BY ID DESC LIMIT 1";
+my $sth = $dbh->prepare($query);
+
 for (@{$settings->{users}}) {
-    $x->backfill($_,\&my_sub);
+    say "Requesting Tweets for $_...";
+    my $result=$dbh->selectrow_hashref($sth,undef,$_);
+    if (defined $result) {
+        say "Existing tweets found, requesting latest since $result->{id}";
+        $x->recent($_,\&my_sub, $result->{id});
+    } else {
+        say "No existing tweets found, filling all";
+        $x->backfill($_, \&my_sub);
+    }   
 }
+$sth->finish;
+$dbh->disconnect;

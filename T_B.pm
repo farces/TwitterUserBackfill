@@ -13,7 +13,7 @@ use strict;
 use warnings;
 use 5.010;
 use Net::Twitter::Lite qw/new user_timeline/;
-use List::Util qw/min/;
+use List::Util qw/min max/;
 use Scalar::Util qw/blessed/;
 
 sub _process {
@@ -28,7 +28,8 @@ sub _process {
         push @ids, int($status->{id});
     }
     my $low = min @ids;
-    return $low;
+    my $high = max @ids;
+    return $low, $high;
 }
 
 sub _twitter_timeline {
@@ -62,25 +63,29 @@ sub _twitter_timeline {
 sub backfill {
     #&backfill('id',\&post_process_func);
     #Gets all historical tweets for user.
-    my ($self, $name, $func, $start) = @_;
+    my ($self, $name, $func) = @_;
     my $statuses;
     $self->{count}=0;
+
+    if (not defined $name) { die "ERROR: username must be provided."; }
+    if (not defined $func) { die "ERROR: You must pass a callback sub to backfill()."; }
     
-    #if the user hasn't passed a callback func, use the default (print text)
-    #if (not defined $func) { $func = sub { $self->_default_action(@_); } }
-    if (not defined $func) { die "ERROR: You must pass a callback sub to backfill()"; }
     say "Get $name" if $self->{debug};
     
+    #if no minimum ID is supplied, get a first batch of statuses and set $min to that
+    
     $statuses = $self->_twitter_timeline({id => "$name", count => $self->{posts_per_request}, });
+    my ($min,$max) = $self->_process($statuses,$func);
 
-    my $min = $self->_process($statuses,$func);
     if (not defined $min) {
         say "Error retrieving first batch for $name. Skipping." if $self->{debug};
         return;
     }
 
+    #if statuses returned are < the criteria for determining if all posts
+    #were returned in a single request, return
     return 0 if (scalar(@$statuses) < ($self->{posts_per_request}-25));
-
+    
     my $new_min;
     while(1) {
         $statuses = $self->_twitter_timeline({
@@ -90,7 +95,7 @@ sub backfill {
         });
         last unless $statuses;
 
-        $new_min = $self->_process($statuses,$func);
+        ($new_min,$max) = $self->_process($statuses,$func);
         last if not defined $new_min;
         last unless ($new_min < $min);
         
@@ -100,10 +105,28 @@ sub backfill {
     }
 }
 
-#sub _default_action {
-#    my ($self,$status) = @_;
-#    say $status->{text};
-#}
+sub recent {
+    #returns recent tweets for a user. apparently requests using since_id can still return old
+    #results :downs:
+    my ($self, $name, $func, $max) = @_;
+    my $statuses;
+    if (not defined $name) { die "ERROR: username must be provided."; }
+    if (not defined $func) { die "ERROR: You must pass a callback sub to recent()."; }
+    if (not defined $max) { die "ERROR: latest existing ID must be provided."; }
+    
+    while (1) {
+        $statuses = $self->_twitter_timeline({
+                id => "$name", 
+                since_id => $max, 
+            });
+        last unless $statuses;
+        my ($min,$new_max) = $self->_process($statuses, $func);
+        last if not defined $new_max;
+        last unless ($new_max > $max);
+        $max = $new_max;
+        sleep($self->{request_rate})
+    }
+}
 
 sub new {
     my ($class, %args) = @_;
