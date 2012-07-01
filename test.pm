@@ -48,10 +48,10 @@ for (@{$settings->{users}}) {
     say "Requesting Tweets for $_...";
     my $result=$dbh->selectrow_hashref($sth,undef,$_);
     if (defined $result) {
-        say "Existing tweets found, requesting latest since $result->{id}";
+        say "Existing tweets found, requesting latest since $result->{id}.";
         $x->recent($_,\&my_sub, $result->{id});
     } else {
-        say "No existing tweets found, filling all";
+        say "No existing tweets found, filling all.";
         $x->backfill($_, \&my_sub);
     }   
 }
