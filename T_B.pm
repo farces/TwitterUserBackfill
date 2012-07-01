@@ -62,9 +62,13 @@ sub _twitter_timeline {
 sub backfill {
     #&backfill('id',\&post_process_func);
     #Gets all historical tweets for user.
-    my ($self, $name, $func) = @_;
+    my ($self, $name, $func, $start) = @_;
     my $statuses;
     $self->{count}=0;
+    
+    #if the user hasn't passed a callback func, use the default (print text)
+    #if (not defined $func) { $func = sub { $self->_default_action(@_); } }
+    if (not defined $func) { die "ERROR: You must pass a callback sub to backfill()"; }
     say "Get $name" if $self->{debug};
     
     $statuses = $self->_twitter_timeline({id => "$name", count => $self->{posts_per_request}, });
@@ -79,9 +83,11 @@ sub backfill {
 
     my $new_min;
     while(1) {
-        $statuses = $self->_twitter_timeline({id => "$name", 
-                                 count => $self->{posts_per_request}, 
-                                 max_id => $min,});
+        $statuses = $self->_twitter_timeline({
+            id => "$name", 
+            count => $self->{posts_per_request}, 
+            max_id => $min,
+        });
         last unless $statuses;
 
         $new_min = $self->_process($statuses,$func);
@@ -94,13 +100,10 @@ sub backfill {
     }
 }
 
-sub _default_action {
-    #dummy function that just prints the 'text' field of each status
-    #it is passed. Place any of your data storage actions here (one call
-    #per status)
-    my ($self,$status) = @_;
-    say $status->{text};
-}
+#sub _default_action {
+#    my ($self,$status) = @_;
+#    say $status->{text};
+#}
 
 sub new {
     my ($class, %args) = @_;
