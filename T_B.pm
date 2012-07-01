@@ -123,6 +123,7 @@ sub recent {
         my ($min,$new_max) = $self->_process($statuses, $func);
         last if not defined $new_max;
         last unless ($new_max > $max);
+        last if scalar(@$statuses) < 10;
         $max = $new_max;
         sleep($self->{request_rate})
     }

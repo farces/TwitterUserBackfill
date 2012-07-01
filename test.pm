@@ -8,16 +8,14 @@ use DBI;
 
 my $dbh = DBI->connect("dbi:SQLite:dbname=twitter.db","","");
 
-#basic subroutine that just prints out the value of the text field in each status
-#this can be changed to do whatever you need with the retrieved data, called once
-#per status. see https://dev.twitter.com/docs/api/1/get/statuses/user_timeline for
-#a list of available fields.
+#insert preparation
+my $query = "INSERT INTO tweets (id, user, text) VALUES (?, ?, ?)";
+my $insert_sth = $dbh->prepare($query);
+
+#example callback that prints the id and text values, and stores data to an sqlite database.
 sub my_sub {
     my $status = shift;
-    my $query = "INSERT INTO tweets (id, user, text) VALUES (?, ?, ?)";
-    my $sth = $dbh->prepare($query);
-    $sth->execute($status->{id},$status->{user}->{screen_name}, $status->{text});
-    $sth->finish;
+    $insert_sth->execute($status->{id},$status->{user}->{screen_name}, $status->{text});
     say $status->{id} . " - " . $status->{text};
 }
 
@@ -58,4 +56,5 @@ for (@{$settings->{users}}) {
     }   
 }
 $sth->finish;
+$insert_sth->finish;
 $dbh->disconnect;
