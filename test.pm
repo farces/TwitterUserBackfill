@@ -1,4 +1,7 @@
 #!/usr/bin/perl
+#Script that can be directly called to update tweets from users specified in config.yaml, backfilling
+#any users that haven't had any tweets collected yet. 
+
 use strict;
 use 5.010;
 use warnings;
@@ -23,11 +26,6 @@ binmode STDOUT, ":utf8"; #required for STDOUT of some non-english characters
 
 #load twitter config
 my ($settings) = LoadFile('config.yaml');
-say "Using following settings:";
-say "consumer key        => $settings->{consumer_key}";
-say "consumer secret     => $settings->{consumer_secret}";
-say "access token        => $settings->{access_token}";
-say "access token secret => $settings->{access_token_secret}";
 
 #connect to twitter API
 #requires your own Twitter API keys, freely available from the twitter dev site.
@@ -55,6 +53,7 @@ for (@{$settings->{users}}) {
         $x->backfill($_, \&my_sub);
     }   
 }
+#cleanup
 $sth->finish;
 $insert_sth->finish;
 $dbh->disconnect;
