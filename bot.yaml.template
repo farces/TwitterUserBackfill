@@ -1,0 +1,15 @@
+#bot::basicbot connect settings
+server      : irc.efnet.net
+channels:
+    - "#help"
+nick        : sample
+alt_nicks:
+    - sample2
+    - sample_alt
+username    : sample
+password    : abcdefg
+port        : 6999
+#ssl         : 1
+#charset     : utf-8
+#no_run      : 1
+
