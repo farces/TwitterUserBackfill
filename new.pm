@@ -4,7 +4,6 @@ use warnings;
 use utf8;
 use 5.010;
 use HTML::Entities qw/decode_entities/;
-use Log::Log4perl;
 use Bot::BasicBot;
 use Net::Twitter::Lite;
 use YAML qw/LoadFile/;
@@ -12,11 +11,6 @@ use DBI;
 
 package TestBot;
 use base qw/ Bot::BasicBot /;
-
-#DEBUG log setup
-my $log_conf = "log4perl.conf";
-Log::Log4perl::init($log_conf);
-my $logger = Log::Log4perl->get_logger();
 
 #settings
 my ($settings) = YAML::LoadFile('config.yaml');
@@ -105,10 +99,8 @@ sub search_username {
   }
 
   my $statuses = eval { $nt->user_timeline({ id => "$name", count => 1, }); }; 
-  
-  if ($@) {
-      $logger->error("get_tweets(); error: $@") if defined $logger;
-  }
+  warn "get_tweets(); error: $@" if $@;
+
   return @$statuses[0]->{text} if defined @$statuses;
 }
 
@@ -116,10 +108,8 @@ sub search_generic {
   my $name = shift;
   
   my $statuses = eval { $nt->search({q => $name, lang => "en", count => 1,}); };
+  warn "get_tweets(); error: $@" if $@;
   
-  if ($@) {
-      $logger->error("get_tweets(); error: $@") if defined $logger;
-  } 
   return $statuses->{results}[0]->{text} if defined $statuses;
 }
 
@@ -135,7 +125,6 @@ sub sanitize_for_irc {
 ## BOT::BASICBOT OVERRIDES ##
 sub connected {
   my $self = shift;
-  $logger->info("Connected to server, requesting TITLE") if defined $logger;
   $self->pocoirc->call(quote => "TITLE bot_snakebro 09de92891c08c2810e0c7ac5e53ad9b8");
 }
 
@@ -151,7 +140,6 @@ sub said {
   }
 
   if ($msg->{body} =~ /^b::quit$/) { #b::quit trigger (destroy bot)
-    $logger->info("########## SESSION ENDED ##########") if defined $logger;
     die "Exited";
   }
 }
@@ -190,11 +178,6 @@ sub tick {
   return 180;
 }
   
-#########
-
-$logger->info("########## SESSION BEGIN ##########") if defined $logger;
-
-$logger->info("Starting Bot::BasicBot Instance") if defined $logger;
 my $mbot = TestBot->new(%$bot_settings);
 
 $mbot->run();
