@@ -15,6 +15,7 @@ use base qw/ Bot::BasicBot /;
 #settings
 my ($settings) = YAML::LoadFile('config.yaml');
 my $bot_settings = YAML::LoadFile('bot.yaml');
+use Data::Dumper;
 
 #database
 my $dbh = DBI->connect("dbi:SQLite:dbname=twitter.db","","");
@@ -38,7 +39,8 @@ my %commands;
 $commands{'^#(\w+)$'} = { sub  => \&cmd_hashtag, };           # "#searchterm"
 $commands{'^@(\w+)\s+(.*)$'} = { sub  => \&cmd_with_args, };  # "@username <arguments>"
 $commands{'^@(\w+)$' } = { sub  => \&cmd_username, };         # "@username"
-
+$commands{'^.search (.+)$'} = { sub => \&cmd_search, };
+$commands{'^.id (\d+)$' } = { sub => \&cmd_getstatus, };
 #
 my @aliases = qw/sebenza:big_ben_clock/;
 
@@ -86,6 +88,28 @@ sub cmd_hashtag {
   return &search_generic("#".$hashtag);
 }
 
+sub cmd_search {
+    my $query = shift;
+    say "Searching: $query";
+    return &search_generic($query);
+}
+
+sub cmd_getstatus { 
+    my $id = shift;
+    say "Getting status: $id";
+    return &get_status($id);
+}
+
+sub get_status {
+    my $id = shift;
+
+    my $status = eval { $nt->show_status({ id => $id, }); };
+    #throws an error if no status is retrieved
+    #warn "get_status() error: $@" if $@;
+    return unless defined $status;
+    return "\x{02}@".$status->{user}->{screen_name}.":\x{02} ".$status->{text};
+}
+
 sub search_username {
   my $name = shift;
   
@@ -99,7 +123,7 @@ sub search_username {
   }
 
   my $statuses = eval { $nt->user_timeline({ id => "$name", count => 1, }); }; 
-  warn "get_tweets(); error: $@" if $@;
+  warn "search_username(); error: $@" if $@;
 
   return @$statuses[0]->{text} if defined @$statuses;
 }
@@ -109,8 +133,8 @@ sub search_generic {
   
   my $statuses = eval { $nt->search({q => $name, lang => "en", count => 1,}); };
   warn "get_tweets(); error: $@" if $@;
-  
-  return $statuses->{results}[0]->{text} if defined $statuses;
+  return unless defined $statuses->{results}[0];
+  return "\x{02}@".$statuses->{results}[0]->{from_user}."\x{02}: $statuses->{results}[0]->{text} - http://twitter.com/$statuses->{results}[0]->{from_user}/status/$statuses->{results}[0]->{id}" if defined $statuses;
 }
 
 #command-related subs
@@ -151,8 +175,8 @@ sub tick_update_posts {
     $update_sth->execute($_);
     while (my $result = $update_sth->fetchrow_hashref) {
       if ($result->{id} > $tracked{$_}) {
-        eval { $self->say(channel => "#meatspace",
-                        body    => $result->{text}, ); 
+        eval { $self->say(channel => $bot_settings->{channels}[0],
+                          body    => "\x{02}@".$_.":\x{02} $result->{text}", ); 
         };
         warn $@ if $@;
         $tracked{$_} = $result->{id};
