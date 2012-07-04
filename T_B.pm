@@ -17,10 +17,6 @@ use List::Util qw/min max/;
 use Scalar::Util qw/blessed/;
 
 sub _process {
-    #&process($statuses_from_user_timeline,\&post_process_func);
-    #Subroutine for storing statuses to whichever data store required.
-    #Returns: lowest inserted ID, or an empty array if none. Lowest ID
-    #required for next user_timeline request.
     my ($self,$statuses,$func) = @_;
     my @ids;
     for my $status (@$statuses) {
@@ -33,9 +29,6 @@ sub _process {
 }
 
 sub _twitter_timeline {
-    #$statuses = &twitter_timeline({user_timeline arguments});
-    #Calls user_timeline, handling any returned errors and retrying if required.
-    #Return: the result of user_timeline() unmodified.
     my ($self,$args) = @_;
     my $statuses;
 
@@ -71,8 +64,6 @@ sub backfill {
     if (not defined $func) { die "ERROR: You must pass a callback sub to backfill()."; }
     
     say "Get $name" if $self->{debug};
-    
-    #if no minimum ID is supplied, get a first batch of statuses and set $min to that
     
     $statuses = $self->_twitter_timeline({id => "$name", count => $self->{posts_per_request}, });
     my ($min,$max) = $self->_process($statuses,$func);
