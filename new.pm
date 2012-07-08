@@ -13,9 +13,10 @@ package TestBot;
 use base qw/ Bot::BasicBot /;
 
 #settings
-my ($settings) = YAML::LoadFile('config.yaml');
-my $bot_settings = YAML::LoadFile('bot.yaml');
-use Data::Dumper;
+my $bot_cfg_file = defined $ARGV[0] ? "bot.".$ARGV[0].".yaml" : "bot.yaml";
+my $twitter_cfg_file = defined $ARGV[0] ? "config.".$ARGV[0].".yaml" : "config.yaml";
+my ($settings) = YAML::LoadFile($twitter_cfg_file);
+my $bot_settings = YAML::LoadFile($bot_cfg_file);
 
 #database
 my $dbh = DBI->connect("dbi:SQLite:dbname=twitter.db","","");
