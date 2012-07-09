@@ -117,7 +117,7 @@ sub search_username {
   #aliases: 
   foreach (@aliases) {
     my @parts = split ":", $_;
-    if ($name eq $parts[0]) {
+    if ($name =~ m/^$parts[0]$/i) {
       $name = $parts[1];
       last;
     }
