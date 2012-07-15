@@ -165,6 +165,11 @@ sub tick_update_posts {
 }
 
 sub tick {
+  #reconnect if the connection is down
+  if (not $con->is_connected) {
+      &connect;
+  }
+
   $SIG{CHLD} = 'IGNORE';
   my $pid = fork();
   if (defined $pid && $pid == 0) {
@@ -190,7 +195,7 @@ sub connect {
 }
 
 $con->reg_cb (registered => sub { $con->send_raw ("TITLE bot_snakebro 09de92891c08c2810e0c7ac5e53ad9b8") });
-$con->reg_cb (disconnect => sub { print "Disconnected. Reconnecting."; &connect });
+$con->reg_cb (disconnect => sub { warn "Disconnected. Attempting reconnect at next tick"  });
 $con->reg_cb (read => sub {
         my ($con, $msg) = @_;
         if ($msg->{command} eq "PRIVMSG") {
@@ -210,9 +215,7 @@ $con->reg_cb (read => sub {
         }
     });
 
-
-
-my $tick_watcher = AnyEvent->timer(after => 1, interval => 180, cb => \&tick);
+my $tick_watcher = AnyEvent->timer(after => 30, interval => 180, cb => \&tick);
 
 &connect;
 $c->wait;
