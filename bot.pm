@@ -65,11 +65,11 @@ sub cmd_username {
   say "Searching: @".$name;
   #if username is one that is listed in the config, pull an entry from the db
   if (grep {$_ eq $name} keys %tracked) {
-      my $result = $dbh->selectrow_hashref($random_sth,undef,$name);
-      return $result->{text};
-    } else {
-      return &search_username($name);
-   }
+    my $result = $dbh->selectrow_hashref($random_sth,undef,$name);
+    return $result->{text};
+  } else {
+    return &search_username($name);
+  }
 }
 
 sub cmd_with_args {
@@ -94,25 +94,24 @@ sub cmd_hashtag {
 }
 
 sub cmd_search {
-    my $query = shift;
-    say "Searching: $query";
-    return &search_generic($query);
+  my $query = shift;
+  say "Searching: $query";
+  return &search_generic($query);
 }
 
 sub cmd_getstatus { 
-    my $id = shift;
-    say "Getting status: $id";
-    return &get_status($id);
+  my $id = shift;
+  say "Getting status: $id";
+  return &get_status($id);
 }
 
 sub get_status {
-    my $id = shift;
-
-    my $status = eval { $nt->show_status({ id => $id, }); };
-    #throws an error if no status is retrieved
-    #warn "get_status() error: $@" if $@;
-    return unless defined $status;
-    return "\x{02}@".$status->{user}->{screen_name}.":\x{02} ".$status->{text};
+  my $id = shift;
+  my $status = eval { $nt->show_status({ id => $id, }); };
+  #throws an error if no status is retrieved
+  #warn "get_status() error: $@" if $@;
+  return unless defined $status;
+  return "\x{02}@".$status->{user}->{screen_name}.":\x{02} ".$status->{text};
 }
 
 sub search_username {
@@ -170,7 +169,7 @@ sub tick_update_posts {
 sub tick {
   #reconnect if the connection is down
   if (not $con->heap->{is_connected}) {
-      &connect;
+    &connect;
   }
 
   $SIG{CHLD} = 'IGNORE';
@@ -187,25 +186,24 @@ sub tick {
 }
 
 sub connect {
-    $con->enable_ssl if $bot_settings->{ssl};
-    $con->connect($bot_settings->{server},$bot_settings->{port}, 
-        { nick => $bot_settings->{nick}, 
-          user => $bot_settings->{username}, 
-          password => $bot_settings->{password}, 
-        });
-
-    foreach (@{$bot_settings->{channels}}) {
-        $con->send_srv (JOIN => $_);
-    }
+  $con->enable_ssl if $bot_settings->{ssl};
+  $con->connect($bot_settings->{server},$bot_settings->{port}, 
+      { nick => $bot_settings->{nick}, 
+        user => $bot_settings->{username}, 
+        password => $bot_settings->{password}, 
+      });
+   foreach (@{$bot_settings->{channels}}) {
+     $con->send_srv (JOIN => $_);
+   }
 }
 
 $con->reg_cb (connect => sub { 
         my ($con, $err) = @_;
         if (not $err) {
-            $con->heap->{is_connected} = 1;
+          $con->heap->{is_connected} = 1;
         } else {
-            warn $err;
-            $con->heap->{is_connected} = 0;
+          warn $err;
+          $con->heap->{is_connected} = 0;
         }
     });
 
@@ -217,19 +215,19 @@ $con->reg_cb (read => sub {
         if ($msg->{command} eq "PRIVMSG") {
         
             foreach (keys %commands) {
-                if ($msg->{params}[1] =~ /$_/) {
-                    my $run = $commands{$_}->{sub};
-                    $con->send_srv(PRIVMSG => $bot_settings->{channels}[0], 
-                                              &sanitize_for_irc($run->($1, defined $2 ? $2 : undef)));
-                    return;
-                }
+              if ($msg->{params}[1] =~ /$_/) {
+                my $run = $commands{$_}->{sub};
+                $con->send_srv(PRIVMSG => $bot_settings->{channels}[0], 
+                                          &sanitize_for_irc($run->($1, defined $2 ? $2 : undef)));
+                return;
+              }
             }
 
             if ($msg->{params}[1] =~ /^b::quit$/) { #b::quit trigger (destroy bot)
-                $c->broadcast;
+              $c->broadcast;
             }
-        }
-    });
+          }
+        });
 
 #poll for updates/refresh data
 my $tick_watcher = AnyEvent->timer(after => 30, interval => 180, cb => \&tick);
