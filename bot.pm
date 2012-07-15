@@ -204,6 +204,7 @@ $con->reg_cb (connect => sub {
         if (not $err) {
             $con->heap->{is_connected} = 1;
         } else {
+            warn $err;
             $con->heap->{is_connected} = 0;
         }
     });
@@ -218,9 +219,8 @@ $con->reg_cb (read => sub {
             foreach (keys %commands) {
                 if ($msg->{params}[1] =~ /$_/) {
                     my $run = $commands{$_}->{sub};
-                    #defined $2 ? $2 : undef
-                    $con->send_srv(PRIVMSG => $bot_settings->{channels}[0], &sanitize_for_irc($run->($1, defined $2 ? $2 : undef)));
-                    #$con->send_srv(PRIVMSG => $bot_settings->{channels}[0], &sanitize_for_irc($run->($1))) unless defined $2;
+                    $con->send_srv(PRIVMSG => $bot_settings->{channels}[0], 
+                                              &sanitize_for_irc($run->($1, defined $2 ? $2 : undef)));
                     return;
                 }
             }
@@ -231,6 +231,7 @@ $con->reg_cb (read => sub {
         }
     });
 
+#poll for updates/refresh data
 my $tick_watcher = AnyEvent->timer(after => 30, interval => 180, cb => \&tick);
 
 &connect;
