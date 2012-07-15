@@ -191,10 +191,12 @@ sub connect {
     $con->connect($bot_settings->{server},$bot_settings->{port}, 
         { nick => $bot_settings->{nick}, 
           user => $bot_settings->{username}, 
-          password => "face/e55979a53b49ccbbff678e6c28607be5", 
+          password => $bot_settings->{password}, 
         });
-    
-    $con->send_srv (JOIN => $bot_settings->{channels}[0]);
+
+    foreach (@{$bot_settings->{channels}}) {
+        $con->send_srv (JOIN => $_);
+    }
 }
 
 $con->reg_cb (connect => sub { 
@@ -216,8 +218,9 @@ $con->reg_cb (read => sub {
             foreach (keys %commands) {
                 if ($msg->{params}[1] =~ /$_/) {
                     my $run = $commands{$_}->{sub};
-                    $con->send_srv(PRIVMSG => $bot_settings->{channels}[0], &sanitize_for_irc($run->($1, $2))) if defined $2;
-                    $con->send_srv(PRIVMSG => $bot_settings->{channels}[0], &sanitize_for_irc($run->($1))) unless defined $2;
+                    #defined $2 ? $2 : undef
+                    $con->send_srv(PRIVMSG => $bot_settings->{channels}[0], &sanitize_for_irc($run->($1, defined $2 ? $2 : undef)));
+                    #$con->send_srv(PRIVMSG => $bot_settings->{channels}[0], &sanitize_for_irc($run->($1))) unless defined $2;
                     return;
                 }
             }
