@@ -4,13 +4,14 @@ use warnings;
 use utf8;
 use 5.010;
 use HTML::Entities qw/decode_entities/;
-use Bot::BasicBot;
 use Net::Twitter::Lite;
 use YAML qw/LoadFile/;
 use DBI;
+use AnyEvent;
+use AnyEvent::IRC::Client;
 
-package TestBot;
-use base qw/ Bot::BasicBot /;
+my $c = AnyEvent->condvar;
+my $con = new AnyEvent::IRC::Client;
 
 #settings
 my $bot_cfg_file = defined $ARGV[0] ? "bot.".$ARGV[0].".yaml" : "bot.yaml";
@@ -147,37 +148,13 @@ sub sanitize_for_irc {
   return $text;
 }
 
-## BOT::BASICBOT OVERRIDES ##
-sub connected {
-  my $self = shift;
-  $self->pocoirc->call(quote => "TITLE bot_snakebro 09de92891c08c2810e0c7ac5e53ad9b8");
-}
-
-sub said {
-  my ($self, $msg) = @_;
-
-  foreach (keys %commands) {
-    if ($msg->{body} =~ /$_/) {
-      my $run = $commands{$_}->{sub};
-      return &sanitize_for_irc($run->($1, $2)) if defined $2;
-      return &sanitize_for_irc($run->($1));
-    }
-  }
-
-  if ($msg->{body} =~ /^b::quit$/) { #b::quit trigger (destroy bot)
-    die "Exited";
-  }
-}
-
 sub tick_update_posts {
-  my $self = shift;
-
   foreach (keys %tracked) {
     $update_sth->execute($_);
     while (my $result = $update_sth->fetchrow_hashref) {
       if ($result->{id} > $tracked{$_}) {
-        eval { $self->say(channel => $bot_settings->{channels}[0],
-                          body    => "\x{02}@".$_.":\x{02} $result->{text}", ); 
+        eval { 
+            $con->send_srv(PRIVMSG => $bot_settings->{channels}[0], "\x{02}@".$_.":\x{02} $result->{text}");
         };
         warn $@ if $@;
         $tracked{$_} = $result->{id};
@@ -188,8 +165,6 @@ sub tick_update_posts {
 }
 
 sub tick {
-  my $self = shift;
-  
   $SIG{CHLD} = 'IGNORE';
   my $pid = fork();
   if (defined $pid && $pid == 0) {
@@ -198,14 +173,47 @@ sub tick {
     exit 0;
   }
 
-  &tick_update_posts($self);
+  &tick_update_posts;
 
   return 180;
 }
-  
-my $mbot = TestBot->new(%$bot_settings);
 
-$mbot->run();
-use POE;
-$poe_kernel->run();
+sub connect {
+    $con->enable_ssl;
+    $con->connect($bot_settings->{server},$bot_settings->{port}, 
+        { nick => $bot_settings->{nick}, 
+          user => $bot_settings->{username}, 
+          password => "face/e55979a53b49ccbbff678e6c28607be5", 
+        });
+    
+    $con->send_raw ("QUOTE TITLE bot_snakebro 09de92891c08c2810e0c7ac5e53ad9b8");
+    $con->send_srv (JOIN => $bot_settings->{channels}[0]);
+}
 
+$con->reg_cb (registered => sub { warn "Registered" });
+$con->reg_cb (disconnect => sub { print "Disconnected. Reconnecting."; &connect });
+$con->reg_cb (read => sub {
+        my ($con, $msg) = @_;
+        if ($msg->{command} eq "PRIVMSG") {
+        
+            foreach (keys %commands) {
+                if ($msg->{params}[1] =~ /$_/) {
+                    my $run = $commands{$_}->{sub};
+                    $con->send_srv(PRIVMSG => $bot_settings->{channels}[0], &sanitize_for_irc($run->($1, $2))) if defined $2;
+                    $con->send_srv(PRIVMSG => $bot_settings->{channels}[0], &sanitize_for_irc($run->($1))) unless defined $2;
+                    return;
+                }
+            }
+
+            if ($msg->{params}[1] =~ /^b::quit$/) { #b::quit trigger (destroy bot)
+                $c->broadcast;
+            }
+        }
+    });
+
+
+
+my $tick_watcher = AnyEvent->timer(after => 1, interval => 180, cb => \&tick);
+
+&connect;
+$c->wait;
