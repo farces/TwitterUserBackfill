@@ -3,12 +3,15 @@ use strict;
 use warnings;
 use utf8;
 use 5.010;
+use Encode qw/encode/;
 use HTML::Entities qw/decode_entities/;
 use Net::Twitter::Lite;
 use YAML qw/LoadFile/;
 use DBI;
 use AnyEvent;
 use AnyEvent::IRC::Client;
+
+binmode STDOUT, ":utf8"; 
 
 my $c = AnyEvent->condvar;
 my $con = new AnyEvent::IRC::Client;
@@ -145,7 +148,7 @@ sub sanitize_for_irc {
   return unless defined $text;
   $text =~ s/\n//g;
   $text = HTML::Entities::decode_entities($text);
-  return $text;
+  return encode('utf8', $text);
 }
 
 sub tick_update_posts {
@@ -166,7 +169,7 @@ sub tick_update_posts {
 
 sub tick {
   #reconnect if the connection is down
-  if (not $con->is_connected) {
+  if (not $con->heap->{is_connected}) {
       &connect;
   }
 
@@ -194,8 +197,18 @@ sub connect {
     $con->send_srv (JOIN => $bot_settings->{channels}[0]);
 }
 
+$con->reg_cb (connect => sub { 
+        my ($con, $err) = @_;
+        if (not $err) {
+            $con->heap->{is_connected} = 1;
+        } else {
+            $con->heap->{is_connected} = 0;
+        }
+    });
+
 $con->reg_cb (registered => sub { $con->send_raw ("TITLE bot_snakebro 09de92891c08c2810e0c7ac5e53ad9b8") });
-$con->reg_cb (disconnect => sub { warn "Disconnected. Attempting reconnect at next tick"  });
+$con->reg_cb (disconnect => sub { $con->heap->{is_connected} = 0; warn "Disconnected. Attempting reconnect at next tick"  });
+
 $con->reg_cb (read => sub {
         my ($con, $msg) = @_;
         if ($msg->{command} eq "PRIVMSG") {
