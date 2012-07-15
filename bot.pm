@@ -179,18 +179,17 @@ sub tick {
 }
 
 sub connect {
-    $con->enable_ssl;
+    $con->enable_ssl if $bot_settings->{ssl};
     $con->connect($bot_settings->{server},$bot_settings->{port}, 
         { nick => $bot_settings->{nick}, 
           user => $bot_settings->{username}, 
           password => "face/e55979a53b49ccbbff678e6c28607be5", 
         });
     
-    $con->send_raw ("QUOTE TITLE bot_snakebro 09de92891c08c2810e0c7ac5e53ad9b8");
     $con->send_srv (JOIN => $bot_settings->{channels}[0]);
 }
 
-$con->reg_cb (registered => sub { warn "Registered" });
+$con->reg_cb (registered => sub { $con->send_raw ("TITLE bot_snakebro 09de92891c08c2810e0c7ac5e53ad9b8") });
 $con->reg_cb (disconnect => sub { print "Disconnected. Reconnecting."; &connect });
 $con->reg_cb (read => sub {
         my ($con, $msg) = @_;
