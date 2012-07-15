@@ -74,14 +74,14 @@ sub cmd_username {
 
 sub cmd_with_args {
   my ($name, $args) = @_;
-  
+
   if (grep {$_ eq $name} keys %tracked) { 
     if ($args eq "latest") {
       my $result = $dbh->selectrow_hashref($default_sth,undef,$name);
       return $result->{text};
     } else {
       #todo: implement some kind of search
-      
+
     }
   }
   return;
@@ -116,7 +116,7 @@ sub get_status {
 
 sub search_username {
   my $name = shift;
-  
+
   #aliases: 
   foreach (@aliases) {
     my @parts = split ":", $_;
@@ -134,7 +134,7 @@ sub search_username {
 
 sub search_generic {
   my $name = shift;
-  
+
   my $statuses = eval { $nt->search({q => $name, lang => "en", count => 1,}); };
   warn "get_tweets(); error: $@" if $@;
   return unless defined $statuses->{results}[0];
@@ -156,7 +156,7 @@ sub tick_update_posts {
     while (my $result = $update_sth->fetchrow_hashref) {
       if ($result->{id} > $tracked{$_}) {
         eval { 
-            $con->send_srv(PRIVMSG => $bot_settings->{channels}[0], "\x{02}@".$_.":\x{02} $result->{text}");
+          $con->send_srv(PRIVMSG => $bot_settings->{channels}[0], "\x{02}@".$_.":\x{02} $result->{text}");
         };
         warn $@ if $@;
         $tracked{$_} = $result->{id};
@@ -188,46 +188,45 @@ sub tick {
 sub connect {
   $con->enable_ssl if $bot_settings->{ssl};
   $con->connect($bot_settings->{server},$bot_settings->{port}, 
-      { nick => $bot_settings->{nick}, 
-        user => $bot_settings->{username}, 
-        password => $bot_settings->{password}, 
-      });
-   foreach (@{$bot_settings->{channels}}) {
-     $con->send_srv (JOIN => $_);
-   }
+    { nick => $bot_settings->{nick}, 
+      user => $bot_settings->{username}, 
+      password => $bot_settings->{password}, 
+    });
+  foreach (@{$bot_settings->{channels}}) {
+    $con->send_srv (JOIN => $_);
+  }
 }
 
 $con->reg_cb (connect => sub { 
-        my ($con, $err) = @_;
-        if (not $err) {
-          $con->heap->{is_connected} = 1;
-        } else {
-          warn $err;
-          $con->heap->{is_connected} = 0;
-        }
-    });
+    my ($con, $err) = @_;
+    if (not $err) {
+      $con->heap->{is_connected} = 1;
+    } else {
+      warn $err;
+      $con->heap->{is_connected} = 0;
+    }
+  });
 
 $con->reg_cb (registered => sub { $con->send_raw ("TITLE bot_snakebro 09de92891c08c2810e0c7ac5e53ad9b8") });
 $con->reg_cb (disconnect => sub { $con->heap->{is_connected} = 0; warn "Disconnected. Attempting reconnect at next tick"  });
 
 $con->reg_cb (read => sub {
-        my ($con, $msg) = @_;
-        if ($msg->{command} eq "PRIVMSG") {
-        
-            foreach (keys %commands) {
-              if ($msg->{params}[1] =~ /$_/) {
-                my $run = $commands{$_}->{sub};
-                $con->send_srv(PRIVMSG => $bot_settings->{channels}[0], 
-                                          &sanitize_for_irc($run->($1, defined $2 ? $2 : undef)));
-                return;
-              }
-            }
+    my ($con, $msg) = @_;
+    if ($msg->{command} eq "PRIVMSG") {
+      foreach (keys %commands) {
+        if ($msg->{params}[1] =~ /$_/) {
+          my $run = $commands{$_}->{sub};
+          $con->send_srv(PRIVMSG => $bot_settings->{channels}[0], 
+            &sanitize_for_irc($run->($1, defined $2 ? $2 : undef)));
+          return;
+        }
+      }
 
-            if ($msg->{params}[1] =~ /^b::quit$/) { #b::quit trigger (destroy bot)
-              $c->broadcast;
-            }
-          }
-        });
+      if ($msg->{params}[1] =~ /^b::quit$/) { #b::quit trigger (destroy bot)
+        $c->broadcast;
+      }
+    }
+  });
 
 #poll for updates/refresh data
 my $tick_watcher = AnyEvent->timer(after => 30, interval => 180, cb => \&tick);
