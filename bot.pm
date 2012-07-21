@@ -23,11 +23,15 @@ getopts('ds:');
 my $c = AnyEvent->condvar;
 my $con = new AnyEvent::IRC::Client;
 
-#settings
-#TODO: bot.yaml and config.yaml should be merged
-my $bot_cfg_file = defined $opt_s ? "bot.".$opt_s.".yaml" : "bot.yaml";
-#my $twitter_cfg_file = defined $opt_s ? "config.".$opt_s.".yaml" : "config.yaml";
-my ($settings) = YAML::LoadFile('config.yaml');
+#settings - bot.yaml for irc-related, config.yaml for twitter.
+my $bot_cfg_file = defined $opt_s ? "bot.$opt_s.yaml" : "bot.yaml";
+my $twitter_cfg_file = !defined $opt_s        ? "config.yaml" : 
+                      -e "config.$opt_s.yaml" ? "config.$opt_s.yaml" : 
+                                                "config.yaml";
+
+print "Using twitter config from $twitter_cfg_file\n";
+print "Using bot config from $bot_cfg_file\n";
+my ($settings) = YAML::LoadFile($twitter_cfg_file);
 my $bot_settings = YAML::LoadFile($bot_cfg_file);
 
 #database
