@@ -10,6 +10,7 @@ use YAML qw/LoadFile/;
 use DBI;
 use AnyEvent;
 use AnyEvent::IRC::Client;
+use AnyEvent::IRC::Util qw/prefix_nick/;
 
 binmode STDOUT, ":utf8"; 
 
@@ -17,6 +18,7 @@ my $c = AnyEvent->condvar;
 my $con = new AnyEvent::IRC::Client;
 
 #settings
+#TODO: bot.yaml and config.yaml should be merged
 my $bot_cfg_file = defined $ARGV[0] ? "bot.".$ARGV[0].".yaml" : "bot.yaml";
 my $twitter_cfg_file = defined $ARGV[0] ? "config.".$ARGV[0].".yaml" : "config.yaml";
 my ($settings) = YAML::LoadFile($twitter_cfg_file);
@@ -41,11 +43,11 @@ foreach (@{$settings->{users}}) {
 
 #
 my %commands;
-$commands{'^#(\w+)$'} = { sub  => \&cmd_hashtag, };           # "#searchterm"
-$commands{'^@(\w+)\s+(.*)$'} = { sub  => \&cmd_with_args, };  # "@username <arguments>"
-$commands{'^@(\w+)$' } = { sub  => \&cmd_username, };         # "@username"
-$commands{'^.search (.+)$'} = { sub => \&cmd_search, };
-$commands{'^.id (\d+)$' } = { sub => \&cmd_getstatus, };
+$commands{'^#(\w+)$'} = { sub  => \&cmd_hashtag, };           # #searchterm
+$commands{'^@(\w+)\s+(.*)$'} = { sub  => \&cmd_with_args, };  # @username <arguments>
+$commands{'^@(\w+)$' } = { sub  => \&cmd_username, };         # @username
+$commands{'^\.search (.+)$'} = { sub => \&cmd_search, };       # .search <terms>
+$commands{'^\.id (\d+)$' } = { sub => \&cmd_getstatus, };      # .id <id_number>
 #
 my @aliases = qw/sebenza:big_ben_clock/;
 
@@ -212,11 +214,12 @@ $con->reg_cb (disconnect => sub { $con->heap->{is_connected} = 0; warn "Disconne
 
 $con->reg_cb (read => sub {
     my ($con, $msg) = @_;
+    my $target = $con->is_my_nick($msg->{params}[0]) ? prefix_nick($msg) : $msg->{params}[0];
     if ($msg->{command} eq "PRIVMSG") {
       foreach (keys %commands) {
         if ($msg->{params}[1] =~ /$_/) {
           my $run = $commands{$_}->{sub};
-          $con->send_srv(PRIVMSG => $bot_settings->{channels}[0], 
+          $con->send_srv(PRIVMSG => $target, 
             &sanitize_for_irc($run->($1, defined $2 ? $2 : undef)));
           return;
         }
