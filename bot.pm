@@ -11,17 +11,23 @@ use DBI;
 use AnyEvent;
 use AnyEvent::IRC::Client;
 use AnyEvent::IRC::Util qw/prefix_nick/;
+use Getopt::Std;
 
 binmode STDOUT, ":utf8"; 
+
+#-d dumb mode (no update polling)
+#-s <name> custom bot config
+our($opt_d,$opt_s);
+getopts('ds:');
 
 my $c = AnyEvent->condvar;
 my $con = new AnyEvent::IRC::Client;
 
 #settings
 #TODO: bot.yaml and config.yaml should be merged
-my $bot_cfg_file = defined $ARGV[0] ? "bot.".$ARGV[0].".yaml" : "bot.yaml";
-my $twitter_cfg_file = defined $ARGV[0] ? "config.".$ARGV[0].".yaml" : "config.yaml";
-my ($settings) = YAML::LoadFile($twitter_cfg_file);
+my $bot_cfg_file = defined $opt_s ? "bot.".$opt_s.".yaml" : "bot.yaml";
+#my $twitter_cfg_file = defined $opt_s ? "config.".$opt_s.".yaml" : "config.yaml";
+my ($settings) = YAML::LoadFile('$config.yaml');
 my $bot_settings = YAML::LoadFile($bot_cfg_file);
 
 #database
@@ -214,6 +220,7 @@ $con->reg_cb (disconnect => sub { $con->heap->{is_connected} = 0; warn "Disconne
 
 $con->reg_cb (read => sub {
     my ($con, $msg) = @_;
+    #if message in #, reply in #, else reply to senders nick
     my $target = $con->is_my_nick($msg->{params}[0]) ? prefix_nick($msg) : $msg->{params}[0];
     if ($msg->{command} eq "PRIVMSG") {
       foreach (keys %commands) {
@@ -232,7 +239,8 @@ $con->reg_cb (read => sub {
   });
 
 #poll for updates/refresh data
-my $tick_watcher = AnyEvent->timer(after => 30, interval => 180, cb => \&tick);
+print "Requested dumb bot (-d), not polling for updates.\n" if defined $opt_d;
+my $tick_watcher = AnyEvent->timer(after => 30, interval => 180, cb => \&tick) if not defined $opt_d;
 
 &connect;
 $c->wait;
