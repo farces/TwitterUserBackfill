@@ -27,7 +27,7 @@ my $con = new AnyEvent::IRC::Client;
 #TODO: bot.yaml and config.yaml should be merged
 my $bot_cfg_file = defined $opt_s ? "bot.".$opt_s.".yaml" : "bot.yaml";
 #my $twitter_cfg_file = defined $opt_s ? "config.".$opt_s.".yaml" : "config.yaml";
-my ($settings) = YAML::LoadFile('$config.yaml');
+my ($settings) = YAML::LoadFile('config.yaml');
 my $bot_settings = YAML::LoadFile($bot_cfg_file);
 
 #database
@@ -179,6 +179,7 @@ sub tick {
   if (not $con->heap->{is_connected}) {
     &connect;
   }
+  return if defined $opt_d; #finish up if we're dumb
 
   $SIG{CHLD} = 'IGNORE';
   my $pid = fork();
@@ -190,7 +191,7 @@ sub tick {
 
   &tick_update_posts;
 
-  return 180;
+  return;
 }
 
 sub connect {
@@ -240,7 +241,7 @@ $con->reg_cb (read => sub {
 
 #poll for updates/refresh data
 print "Requested dumb bot (-d), not polling for updates.\n" if defined $opt_d;
-my $tick_watcher = AnyEvent->timer(after => 30, interval => 180, cb => \&tick) if not defined $opt_d;
+my $tick_watcher = AnyEvent->timer(after => 30, interval => 180, cb => \&tick);
 
 &connect;
 $c->wait;
