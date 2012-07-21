@@ -59,7 +59,8 @@ $commands{'^@(\w+)$' } = { sub  => \&cmd_username, };         # @username
 $commands{'^\.search (.+)$'} = { sub => \&cmd_search, };       # .search <terms>
 $commands{'^\.id (\d+)$' } = { sub => \&cmd_getstatus, };      # .id <id_number>
 #
-my @aliases = qw/sebenza:big_ben_clock/;
+#my @aliases = qw/sebenza:big_ben_clock/;
+my %aliases = ("sebenza" => "big_ben_clock",);
 
 #
 my $nt = Net::Twitter::Lite->new(
@@ -129,13 +130,8 @@ sub get_status {
 sub search_username {
   my $name = shift;
 
-  #aliases: 
-  foreach (@aliases) {
-    my @parts = split ":", $_;
-    if ($name =~ m/^$parts[0]$/i) {
-      $name = $parts[1];
-      last;
-    }
+  if ($aliases{$name}) {
+    $name = $aliases{$name};
   }
 
   my $statuses = eval { $nt->user_timeline({ id => "$name", count => 1, }); }; 
