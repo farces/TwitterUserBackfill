@@ -9,6 +9,7 @@ Usage
 - Rename config|bot.yaml.template to config|bot.yaml. 
 
 *config.yaml* contains Twitter-related settings (your user-keys and a list of usernames to poll for updates)
+
 *bot.yaml* contains IRC related settings, including server details, password and channels.
 
 - Create database: `sqlite3 twitter.db < schema.sql`
@@ -16,4 +17,5 @@ Usage
 
 ### Additional Arguments
 -d: run bot in "dumb" mode (will not check for updates to user statuses). This is useful if running multiple bots on multiple servers, or if you are running updatedb.pm externally.
+
 -s *<settings_name>*: supply a different bot.yaml file with alternate servers and channels to join. File must be called bot.*<settings_name>*.yaml
