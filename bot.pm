@@ -227,7 +227,7 @@ $con->reg_cb (read => sub {
         if ($msg->{params}[1] =~ /$_/) {
           my $run = $commands{$_}->{sub};
           $con->send_srv(PRIVMSG => $target, 
-            &sanitize_for_irc($run->($1, defined $2 ? $2 : undef)));
+            &sanitize_for_irc($run->(lc($1), defined $2 ? lc($2) : undef)));
           return;
         }
       }
