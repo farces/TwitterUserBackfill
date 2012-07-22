@@ -59,7 +59,6 @@ $commands{'^@(\w+)$' } = { sub  => \&cmd_username, };         # @username
 $commands{'^\.search (.+)$'} = { sub => \&cmd_search, };       # .search <terms>
 $commands{'^\.id (\d+)$' } = { sub => \&cmd_getstatus, };      # .id <id_number>
 #
-#my @aliases = qw/sebenza:big_ben_clock/;
 my %aliases = ("sebenza" => "big_ben_clock",);
 
 #
@@ -88,7 +87,7 @@ sub cmd_username {
 sub cmd_with_args {
   my ($name, $args) = @_;
 
-  if (grep {$_ eq $name} keys %tracked) { 
+  if ($tracked{$name}) { 
     if ($args eq "latest") {
       my $result = $dbh->selectrow_hashref($default_sth,undef,$name);
       return $result->{text};
