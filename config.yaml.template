@@ -1,6 +1,7 @@
 #configuration file for twitter backfilling, required keys:
 #consumer_key, consumer_secret, access_token, access_token_secret, users.
 #users is an array of names to be filled/updated.
+#this config is loaded by updatedb.pm and bot.pm
 consumer_key        : your_consumer_key
 consumer_secret     : your_consumer_secret    
 access_token        : your_access_token
