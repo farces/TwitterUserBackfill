@@ -3,9 +3,6 @@ server      : irc.efnet.net
 channels:
     - "#help"
 nick        : sample
-alt_nicks:
-    - sample2
-    - sample_alt
 username    : sample
 password    : abcdefg
 port        : 6999
