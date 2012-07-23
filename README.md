@@ -8,8 +8,8 @@ Usage
 -----
 - Rename config|bot.yaml.template to config|bot.yaml. 
 
-*config.yaml* contains Twitter-related settings (your user-keys and a list of usernames to poll for updates)a</br>
-*bot.yaml* contains IRC related settings, including server details, password and channels.
+<p>*config.yaml* contains Twitter-related settings (your user-keys and a list of usernames to poll for updates)
+<p>*bot.yaml* contains IRC related settings, including server details, password and channels.
 
 - Create database: `sqlite3 twitter.db < schema.sql`
 - Run the bot! `./bot.pm`
