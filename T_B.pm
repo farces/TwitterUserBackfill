@@ -91,7 +91,7 @@ sub backfill {
         last unless ($new_min < $min);
         
         last if (scalar(@$statuses) < ($self->{posts_per_request}-25));
-        $min = $new_min;
+        $min = $new_min-1;
         sleep($self->{request_rate});
     }
 }
