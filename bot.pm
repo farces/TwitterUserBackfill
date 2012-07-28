@@ -274,7 +274,7 @@ my $w = AnyEvent->io(fh => \*$CHILD, poll => 'r', cb => sub {
   my @t = split(/ /,$msg);
   my $target = shift @t;
   $msg =~ s/^\S+\s*//;
-  $con->send_srv(PRIVMSG => $target, $msg); 
+  $con->send_srv(PRIVMSG => $target, &sanitize_for_irc($msg)); 
 });
 
 &connect;
