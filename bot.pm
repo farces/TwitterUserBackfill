@@ -230,7 +230,7 @@ sub chandler {
   while (chomp(my $msg = <$PARENT>)) {
     my @t = split(/ /,$msg);
     my $target = shift @t;
-    $msg =~ s/^\S+\s*//;
+    $msg = join(" ",@t);
     foreach (keys %commands) {
       if ($msg =~ /$_/) {
         my $run = $commands{$_}->{sub};
@@ -273,7 +273,7 @@ my $w = AnyEvent->io(fh => \*$CHILD, poll => 'r', cb => sub {
   chomp (my $msg = <$CHILD>);
   my @t = split(/ /,$msg);
   my $target = shift @t;
-  $msg =~ s/^\S+\s*//;
+  $msg = join(" ",@t);
   $con->send_srv(PRIVMSG => $target, &sanitize_for_irc($msg)); 
 });
 
