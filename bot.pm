@@ -66,8 +66,9 @@ my %commands;
 $commands{'^#(\w+)$'} = { sub  => \&cmd_hashtag, };           # #searchterm
 $commands{'^@(\w+)\s+(.*)$'} = { sub  => \&cmd_with_args, };  # @username <arguments>
 $commands{'^@(\w+)$' } = { sub  => \&cmd_username, };         # @username
-$commands{'^\.search (.+)$'} = { sub => \&cmd_search, };       # .search <terms>
-$commands{'^\.id (\d+)$' } = { sub => \&cmd_getstatus, };      # .id <id_number>
+$commands{'^\.search (.+)$'} = { sub => \&cmd_search, };      # .search <terms>
+$commands{'^\.id (\d+)$' } = { sub => \&cmd_getstatus, };     # .id <id_number>
+#$commands{'^\.quit$' } = { sub => sub { $c->broadcast; } };  # .quit (needs fixing)
 #
 my %aliases = ("sebenza" => "big_ben_clock",);
 
@@ -137,6 +138,9 @@ sub cmd_getstatus {
   return &get_status($id);
 }
 
+#unfortunately get_status, search_username and search_generic have to be separate
+#as they all access different API portions (show_status, user_timeline and search
+#respectively)
 sub get_status {
   my $id = shift;
   my $status = eval { $nt->show_status({ id => $id, }); };
@@ -165,7 +169,8 @@ sub search_generic {
   my $statuses = eval { $nt->search({q => $name, lang => "en", count => 1,}); };
   warn "get_tweets(); error: $@" if $@;
   return unless defined $statuses->{results}[0];
-  return "\x{02}@".$statuses->{results}[0]->{from_user}."\x{02}: $statuses->{results}[0]->{text} - http://twitter.com/$statuses->{results}[0]->{from_user}/status/$statuses->{results}[0]->{id}" if defined $statuses;
+  my $r = $statuses->{results}[0];
+  return "\x{02}@".$r->{from_user}."\x{02}: $r->{text} - http://twitter.com/$r->{from_user}/status/$r->{id}";
 }
 
 #command-related subs
@@ -187,7 +192,6 @@ sub tick_update_posts {
         };
         warn $@ if $@;
         $tracked{$_} = $result->{id};
-      } else {
       }
     }
   }
@@ -206,7 +210,6 @@ sub tick {
     exec("./updatedb.pm > /dev/null 2>&1 &");
     exit 0;
   }
-
   &tick_update_posts;
 
   return;
@@ -234,8 +237,9 @@ sub chandler {
     foreach (keys %commands) {
       if ($msg =~ /$_/) {
         my $run = $commands{$_}->{sub};
-        my $result = $run->(lc $1 , defined $2 ? lc $2 : undef);
-        print $PARENT "$target $result\n";
+        #run command, with regexp matches $1 and $2 if defined (allows bare .command handling).
+        my $result = $run->(defined $1 ? lc $1 : undef , defined $2 ? lc $2 : undef);
+        print $PARENT "$target $result\n" if $result;
         last;
       }
     }
@@ -269,12 +273,12 @@ print "Requested dumb bot (-d), not polling for updates.\n" if defined $opt_d;
 my $tick_watcher = AnyEvent->timer(after => 30, interval => 180, cb => \&tick);
 
 #watcher to recieve replies from chandler's processing
+#todo: handler will eventually return more than just text for the channel,
+#so this will be updated to accept "OPCODE arg1 arg2 ..."
 my $w = AnyEvent->io(fh => \*$CHILD, poll => 'r', cb => sub { 
   chomp (my $msg = <$CHILD>);
   my @t = split(/ /,$msg);
-  my $target = shift @t;
-  $msg = join(" ",@t);
-  $con->send_srv(PRIVMSG => $target, &sanitize_for_irc($msg)); 
+  $con->send_srv(PRIVMSG => shift @t, &sanitize_for_irc(join(" ", @t))); 
 });
 
 &connect;
