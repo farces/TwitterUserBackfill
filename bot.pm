@@ -12,6 +12,16 @@ use AnyEvent;
 use AnyEvent::IRC::Client;
 use AnyEvent::IRC::Util qw/prefix_nick/;
 use Getopt::Std;
+use Socket;
+use IO::Handle;
+
+#socketpair for parent and chandler to communicate
+our ($CHILD,$PARENT);
+socketpair($CHILD, $PARENT, AF_UNIX, SOCK_STREAM, PF_UNSPEC) or die "socketpair $!";
+$PARENT->autoflush(1);
+$CHILD->autoflush(1);
+
+$SIG{CHLD} = 'IGNORE';
 
 binmode STDOUT, ":utf8"; 
 
@@ -71,6 +81,16 @@ my $nt = Net::Twitter::Lite->new(
   access_token_secret  => $settings->{access_token_secret},
   legacy_lists_api     => 0,
 );
+
+#fork child to handle commands
+my $pid = fork();
+if (defined $pid && $pid == 0) {
+  print "Starting command handler\n";
+  &chandler;
+  print "Chandler exited\n";
+  exit 0;
+}
+close $PARENT;
 
 sub cmd_username {
   my $name = shift;
@@ -180,7 +200,6 @@ sub tick {
   }
   return if defined $opt_d; #finish up if we're dumb
 
-  $SIG{CHLD} = 'IGNORE';
   my $pid = fork();
   if (defined $pid && $pid == 0) {
     # child
@@ -205,6 +224,24 @@ sub connect {
   }
 }
 
+sub chandler {
+  print "Handler loaded\n";
+  close $CHILD;
+  while (chomp(my $msg = <$PARENT>)) {
+    my @t = split(/ /,$msg);
+    my $target = shift @t;
+    $msg =~ s/^\S+\s*//;
+    foreach (keys %commands) {
+      if ($msg =~ /$_/) {
+        my $run = $commands{$_}->{sub};
+        my $result = $run->(lc $1 , defined $2 ? lc $2 : undef);
+        print $PARENT "$target $result\n";
+        last;
+      }
+    }
+  }
+}
+
 $con->reg_cb (connect => sub { 
     my ($con, $err) = @_;
     if (not $err) {
@@ -223,24 +260,23 @@ $con->reg_cb (read => sub {
     #if message in #, reply in #, else reply to senders nick
     my $target = $con->is_my_nick($msg->{params}[0]) ? prefix_nick($msg) : $msg->{params}[0];
     if ($msg->{command} eq "PRIVMSG") {
-      foreach (keys %commands) {
-        if ($msg->{params}[1] =~ /$_/) {
-          my $run = $commands{$_}->{sub};
-          $con->send_srv(PRIVMSG => $target, 
-            &sanitize_for_irc($run->(lc($1), defined $2 ? lc($2) : undef)));
-          return;
-        }
-      }
-
-      if ($msg->{params}[1] =~ /^b::quit$/) { #b::quit trigger (destroy bot)
-        $c->broadcast;
-      }
+      print "Sending data to Child\n";
+      print $CHILD "$target $msg->{params}[1]\n";
     }
   });
 
 #poll for updates/refresh data
 print "Requested dumb bot (-d), not polling for updates.\n" if defined $opt_d;
 my $tick_watcher = AnyEvent->timer(after => 30, interval => 180, cb => \&tick);
+
+#watcher to recieve replies from chandler's processing
+my $w = AnyEvent->io(fh => \*$CHILD, poll => 'r', cb => sub { 
+  chomp (my $msg = <$CHILD>);
+  my @t = split(/ /,$msg);
+  my $target = shift @t;
+  $msg =~ s/^\S+\s*//;
+  $con->send_srv(PRIVMSG => $target, $msg); 
+});
 
 &connect;
 $c->wait;
