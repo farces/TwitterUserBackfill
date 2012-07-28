@@ -260,7 +260,6 @@ $con->reg_cb (read => sub {
     #if message in #, reply in #, else reply to senders nick
     my $target = $con->is_my_nick($msg->{params}[0]) ? prefix_nick($msg) : $msg->{params}[0];
     if ($msg->{command} eq "PRIVMSG") {
-      print "Sending data to Child\n";
       print $CHILD "$target $msg->{params}[1]\n";
     }
   });
