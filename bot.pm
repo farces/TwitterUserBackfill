@@ -14,6 +14,7 @@ use AnyEvent::IRC::Util qw/prefix_nick/;
 use Getopt::Std;
 use Socket;
 use IO::Handle;
+use JSON::XS qw/encode_json decode_json/;
 
 #socketpair for parent and chandler to communicate
 our ($CHILD,$PARENT);
@@ -66,9 +67,6 @@ foreach (@{$settings->{users}}) {
 #NOP: no-op
 #SYS: system command (EXIT, RELOAD, etc.)
 #
-#cmd rules: must accept $from as first arg
-#any returned value will be passed to parent for processing
-#return nothing if no action needs to be taken
 my %commands;
 $commands{'^#(\w+)$'} = { sub  => \&cmd_hashtag, op => "REP", };           # #searchterm
 $commands{'^@(\w+)\s+(.*)$'} = { sub  => \&cmd_with_args, op => "REP", };  # @username <arguments>
@@ -101,25 +99,24 @@ if (defined $pid && $pid == 0) {
 close $PARENT;
 
 sub cmd_username {
-  my $from = shift;
   my $name = shift;
   say "Searching: @".$name;
   #if username is one that is listed in the config, pull an entry from the db
   if (grep {$_ eq $name} keys %tracked) {
     my $result = $dbh->selectrow_hashref($random_sth,undef,$name);
-    return "$from $result->{text}";
+    return $result->{text};
   } else {
     my $result = &search_username($name);
-    return "$from $result" if defined $result;
+    return $result if defined $result;
   }
 }
 
 sub cmd_with_args {
-  my ($from, $name, $args) = @_;
+  my ($name, $args) = @_;
   if ($tracked{$name}) { 
     if ($args eq "latest") {
       my $result = $dbh->selectrow_hashref($default_sth,undef,$name);
-      return "$from $result->{text}";
+      return $result->{text};
     } else {
       #todo: implement some kind of search
 
@@ -129,24 +126,24 @@ sub cmd_with_args {
 }
 
 sub cmd_hashtag {
-  my ($from, $hashtag) = @_;
+  my $hashtag = shift;
   say "Searching: #$hashtag";
   my $result = &search_generic("#".$hashtag);
-  return "$from $result" if defined $result;
+  return $result if defined $result;
 }
 
 sub cmd_search {
-  my ($from, $query) = @_;
+  my $query = shift;
   say "Searching: $query";
   my $result = &search_generic($query);
-  return "$from $result" if defined $result;
+  return $result if defined $result;
 }
 
 sub cmd_getstatus { 
-  my ($from, $id) = @_;
+  my $id = shift;
   say "Getting status: $id";
   my $result = &get_status($id);
-  return "$from $result" if defined $result;
+  return $result if defined $result;
 }
 
 #unfortunately get_status, search_username and search_generic have to be separate
@@ -242,16 +239,17 @@ sub chandler {
   print "Chandler loaded\n";
   close $CHILD;
   while (my $msg = <$PARENT>) {
-    chomp $msg;
-    my @t = split(/ /,$msg);
-    my $from = shift @t;
-    $msg = join(" ",@t);
+    undef $@; #required as previous iterations could have produced an error (safely).
+    chomp $msg; my $work = decode_json($msg);
+    warn $@ if $@; next if $@;
+
     foreach (keys %commands) {
-      if ($msg =~ /$_/) {
+      if ($work->{msg} =~ /$_/) {
         my $run = $commands{$_}->{sub};
         #run command, with regexp matches $1 and $2 if defined (allows bare .command handling).
-        my $result = $run->($from, defined $1 ? lc $1 : undef , defined $2 ? lc $2 : undef);
-        print $PARENT "$commands{$_}->{op} $result\n" if $result;
+        my $result = $run->(defined $1 ? lc $1 : undef , defined $2 ? lc $2 : undef);
+        my $data = { op => $commands{$_}->{op}, payload => { target => $work->{target}, msg => $result },};
+        print $PARENT encode_json($data)."\n" if $result;
         last;
       }
     }
@@ -268,15 +266,21 @@ $con->reg_cb (connect => sub {
     }
   });
 
-$con->reg_cb (registered => sub { $con->send_raw ("TITLE bot_snakebro 09de92891c08c2810e0c7ac5e53ad9b8") });
-$con->reg_cb (disconnect => sub { $con->heap->{is_connected} = 0; warn "Disconnected. Attempting reconnect at next tick"  });
+$con->reg_cb (registered => sub { 
+    $con->send_raw ("TITLE bot_snakebro 09de92891c08c2810e0c7ac5e53ad9b8") 
+  });
+$con->reg_cb (disconnect => sub { 
+    $con->heap->{is_connected} = 0; 
+    warn "Disconnected. Attempting reconnect at next tick" 
+  });
 
 $con->reg_cb (read => sub {
     my ($con, $msg) = @_;
     #if message in #, reply in #, else reply to senders nick
     my $target = $con->is_my_nick($msg->{params}[0]) ? prefix_nick($msg) : $msg->{params}[0];
     if ($msg->{command} eq "PRIVMSG") {
-      print $CHILD "$target $msg->{params}[1]\n";
+      my $work = {target => $target, msg => $msg->{params}[1], };
+      print $CHILD encode_json($work)."\n";
     }
   });
 
@@ -297,13 +301,15 @@ my $w; $w = AnyEvent->io(fh => \*$CHILD, poll => 'r', cb => sub {
   }
 
   chomp $msg;
-  my @t = split(/ /,$msg);
-  my $opcode = shift @t;
-  if ($opcode eq "REP") {
-    $con->send_srv(PRIVMSG => shift @t, &sanitize_for_irc(join(" ", @t)));
-  } elsif ($opcode eq "SYS") {
-    my $action = shift @t;
-    undef $w;
+  my $data = decode_json($msg);
+  warn $@ if $@;
+  return if $@;
+
+  if ($data->{op} eq "REP") {
+    $con->send_srv(PRIVMSG => $data->{payload}->{target}, &sanitize_for_irc($data->{payload}->{msg}));
+  } elsif ($data->{op} eq "SYS") {
+    my $action = $data->{payload}->{msg};
+    undef $w if ($action eq "EXIT");
     $c->broadcast if ($action eq "EXIT");
   }
 });
