@@ -239,9 +239,10 @@ sub connect {
 }
 
 sub chandler {
-  print "Handler loaded\n";
+  print "Chandler loaded\n";
   close $CHILD;
-  while (chomp(my $msg = <$PARENT>)) {
+  while (my $msg = <$PARENT>) {
+    chomp $msg;
     my @t = split(/ /,$msg);
     my $from = shift @t;
     $msg = join(" ",@t);
@@ -285,12 +286,22 @@ my $tick_watcher = AnyEvent->timer(after => 30, interval => 180, cb => \&tick);
 
 #watcher to recieve replies from chandler's processing
 my $w; $w = AnyEvent->io(fh => \*$CHILD, poll => 'r', cb => sub { 
-  chomp (my $msg = <$CHILD>);
+  my $msg = <$CHILD>;
+
+  #deal with erroneus <$CHILD> read events by just killing the bot
+  if (!defined $msg) {
+    warn "Chander crash! Oh dear lord!";
+    undef $w;
+    $c->broadcast;
+    return;
+  }
+
+  chomp $msg;
   my @t = split(/ /,$msg);
   my $opcode = shift @t;
   if ($opcode eq "REP") {
     $con->send_srv(PRIVMSG => shift @t, &sanitize_for_irc(join(" ", @t)));
-  } if ($opcode eq "SYS") {
+  } elsif ($opcode eq "SYS") {
     my $action = shift @t;
     undef $w;
     $c->broadcast if ($action eq "EXIT");
