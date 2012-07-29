@@ -239,7 +239,6 @@ sub chandler {
   print "Chandler loaded\n";
   close $CHILD;
   while (my $msg = <$PARENT>) {
-    undef $@; #required as previous iterations could have produced an error (safely).
     chomp $msg; my $work = decode_json($msg);
     warn $@ if $@; next if $@;
 
@@ -253,7 +252,7 @@ sub chandler {
         last;
       }
     }
-  }
+  } continue { undef $@; }
 }
 
 $con->reg_cb (connect => sub { 
