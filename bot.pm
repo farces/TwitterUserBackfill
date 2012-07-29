@@ -61,14 +61,21 @@ foreach (@{$settings->{users}}) {
   }
 }
 
+#OPCODES:
+#REP: reply to msg
+#NOP: no-op
+#SYS: system command (EXIT, RELOAD, etc.)
 #
+#cmd rules: must accept $from as first arg
+#any returned value will be passed to parent for processing
+#return nothing if no action needs to be taken
 my %commands;
-$commands{'^#(\w+)$'} = { sub  => \&cmd_hashtag, };           # #searchterm
-$commands{'^@(\w+)\s+(.*)$'} = { sub  => \&cmd_with_args, };  # @username <arguments>
-$commands{'^@(\w+)$' } = { sub  => \&cmd_username, };         # @username
-$commands{'^\.search (.+)$'} = { sub => \&cmd_search, };      # .search <terms>
-$commands{'^\.id (\d+)$' } = { sub => \&cmd_getstatus, };     # .id <id_number>
-#$commands{'^\.quit$' } = { sub => sub { $c->broadcast; } };  # .quit (needs fixing)
+$commands{'^#(\w+)$'} = { sub  => \&cmd_hashtag, op => "REP", };           # #searchterm
+$commands{'^@(\w+)\s+(.*)$'} = { sub  => \&cmd_with_args, op => "REP", };  # @username <arguments>
+$commands{'^@(\w+)$' } = { sub  => \&cmd_username, op => "REP", };         # @username
+$commands{'^\.search (.+)$'} = { sub => \&cmd_search, op => "REP", };      # .search <terms>
+$commands{'^\.id (\d+)$' } = { sub => \&cmd_getstatus, op => "REP", };     # .id <id_number>
+$commands{'^\.quit$' } = { sub => sub { return "EXIT" }, op => "SYS", };  # .quit (needs fixing)
 #
 my %aliases = ("sebenza" => "big_ben_clock",);
 
@@ -94,24 +101,25 @@ if (defined $pid && $pid == 0) {
 close $PARENT;
 
 sub cmd_username {
+  my $from = shift;
   my $name = shift;
   say "Searching: @".$name;
   #if username is one that is listed in the config, pull an entry from the db
   if (grep {$_ eq $name} keys %tracked) {
     my $result = $dbh->selectrow_hashref($random_sth,undef,$name);
-    return $result->{text};
+    return "$from $result->{text}";
   } else {
-    return &search_username($name);
+    my $result = &search_username($name);
+    return "$from $result" if defined $result;
   }
 }
 
 sub cmd_with_args {
-  my ($name, $args) = @_;
-
+  my ($from, $name, $args) = @_;
   if ($tracked{$name}) { 
     if ($args eq "latest") {
       my $result = $dbh->selectrow_hashref($default_sth,undef,$name);
-      return $result->{text};
+      return "$from $result->{text}";
     } else {
       #todo: implement some kind of search
 
@@ -121,26 +129,30 @@ sub cmd_with_args {
 }
 
 sub cmd_hashtag {
-  my $hashtag = shift;
+  my ($from, $hashtag) = @_;
   say "Searching: #$hashtag";
-  return &search_generic("#".$hashtag);
+  my $result = &search_generic("#".$hashtag);
+  return "$from $result" if defined $result;
 }
 
 sub cmd_search {
-  my $query = shift;
+  my ($from, $query) = @_;
   say "Searching: $query";
-  return &search_generic($query);
+  my $result = &search_generic($query);
+  return "$from $result" if defined $result;
 }
 
 sub cmd_getstatus { 
-  my $id = shift;
+  my ($from, $id) = @_;
   say "Getting status: $id";
-  return &get_status($id);
+  my $result = &get_status($id);
+  return "$from $result" if defined $result;
 }
 
 #unfortunately get_status, search_username and search_generic have to be separate
 #as they all access different API portions (show_status, user_timeline and search
 #respectively)
+#these should return nothing if no result was found
 sub get_status {
   my $id = shift;
   my $status = eval { $nt->show_status({ id => $id, }); };
@@ -152,7 +164,6 @@ sub get_status {
 
 sub search_username {
   my $name = shift;
-
   if ($aliases{$name}) {
     $name = $aliases{$name};
   }
@@ -232,14 +243,14 @@ sub chandler {
   close $CHILD;
   while (chomp(my $msg = <$PARENT>)) {
     my @t = split(/ /,$msg);
-    my $target = shift @t;
+    my $from = shift @t;
     $msg = join(" ",@t);
     foreach (keys %commands) {
       if ($msg =~ /$_/) {
         my $run = $commands{$_}->{sub};
         #run command, with regexp matches $1 and $2 if defined (allows bare .command handling).
-        my $result = $run->(defined $1 ? lc $1 : undef , defined $2 ? lc $2 : undef);
-        print $PARENT "$target $result\n" if $result;
+        my $result = $run->($from, defined $1 ? lc $1 : undef , defined $2 ? lc $2 : undef);
+        print $PARENT "$commands{$_}->{op} $result\n" if $result;
         last;
       }
     }
@@ -273,12 +284,17 @@ print "Requested dumb bot (-d), not polling for updates.\n" if defined $opt_d;
 my $tick_watcher = AnyEvent->timer(after => 30, interval => 180, cb => \&tick);
 
 #watcher to recieve replies from chandler's processing
-#todo: handler will eventually return more than just text for the channel,
-#so this will be updated to accept "OPCODE arg1 arg2 ..."
-my $w = AnyEvent->io(fh => \*$CHILD, poll => 'r', cb => sub { 
+my $w; $w = AnyEvent->io(fh => \*$CHILD, poll => 'r', cb => sub { 
   chomp (my $msg = <$CHILD>);
   my @t = split(/ /,$msg);
-  $con->send_srv(PRIVMSG => shift @t, &sanitize_for_irc(join(" ", @t))); 
+  my $opcode = shift @t;
+  if ($opcode eq "REP") {
+    $con->send_srv(PRIVMSG => shift @t, &sanitize_for_irc(join(" ", @t)));
+  } if ($opcode eq "SYS") {
+    my $action = shift @t;
+    undef $w;
+    $c->broadcast if ($action eq "EXIT");
+  }
 });
 
 &connect;
