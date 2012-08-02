@@ -3,17 +3,11 @@ use strict;
 use warnings;
 use utf8;
 use 5.010;
-use Encode qw/encode/;
-use HTML::Entities qw/decode_entities/;
-use Net::Twitter::Lite;
 use YAML qw/LoadFile/;
 use DBI;
-use AnyEvent;
-use AnyEvent::IRC::Client;
-use AnyEvent::IRC::Util qw/prefix_nick/;
-use Getopt::Std;
+use Getopt::Std qw/getopts/;
 use Socket;
-use IO::Handle;
+use IO::Handle qw/autoflush/;
 use JSON::XS qw/encode_json decode_json/;
 
 #socketpair for parent and chandler to communicate
@@ -30,9 +24,6 @@ binmode STDOUT, ":utf8";
 #-s <name> custom bot config
 our($opt_d,$opt_s);
 getopts('ds:');
-
-my $c = AnyEvent->condvar;
-my $con = new AnyEvent::IRC::Client;
 
 #settings - bot.yaml for irc-related, config.yaml for twitter.
 my $bot_cfg_file = defined $opt_s ? "bot.$opt_s.yaml" : "bot.yaml";
@@ -51,6 +42,8 @@ my $default_sth = $dbh->prepare("SELECT text FROM tweets WHERE user=? ORDER BY I
 my $random_sth = $dbh->prepare("SELECT text FROM tweets WHERE user=? ORDER BY RANDOM() LIMIT 1;");
 my $update_sth = $dbh->prepare("SELECT id, text FROM tweets WHERE user=? ORDER BY ID DESC LIMIT 5");
 
+
+print "Loading tracked users... ";
 #tracked users hash (contains latest known id)
 my %tracked;
 foreach (@{$settings->{users}}) {
@@ -61,43 +54,64 @@ foreach (@{$settings->{users}}) {
     $tracked{$_} = 0;
   }
 }
-
-#OPCODES:
-#REP: reply to msg
-#NOP: no-op
-#SYS: system command (EXIT, RELOAD, etc.)
-#
-my %commands;
-$commands{'^#(\w+)$'} = { sub  => \&cmd_hashtag, op => "REP", };           # #searchterm
-$commands{'^@(\w+)\s+(.*)$'} = { sub  => \&cmd_with_args, op => "REP", };  # @username <arguments>
-$commands{'^@(\w+)$' } = { sub  => \&cmd_username, op => "REP", };         # @username
-$commands{'^\.search (.+)$'} = { sub => \&cmd_search, op => "REP", };      # .search <terms>
-$commands{'^\.id (\d+)$' } = { sub => \&cmd_getstatus, op => "REP", };     # .id <id_number>
-$commands{'^\.quit$' } = { sub => sub { return "EXIT" }, op => "SYS", };  # .quit (needs fixing)
-#
-my %aliases = ("sebenza" => "big_ben_clock",);
-
-#
-my $nt = Net::Twitter::Lite->new(
-  traits              => [qw/OAuth API::REST API::Search RetryOnError/],
-  user_agent_args     => { timeout => 8 }, #required for cases where twitter holds a connection open
-  consumer_key         => $settings->{consumer_key},
-  consumer_secret      => $settings->{consumer_secret},
-  access_token         => $settings->{access_token},
-  access_token_secret  => $settings->{access_token_secret},
-  legacy_lists_api     => 0,
-);
+print join(",", keys %tracked)."\n";
 
 #fork child to handle commands
 my $pid = fork();
+my ($nt, %commands, %aliases);
 if (defined $pid && $pid == 0) {
+  #this block contains child set-up, including all command-related code and variables
+  #to ensure the parent doesn't hold on to any unnecessary data and prevent multiple
+  #initialization of net::twitter::lite
+  use Net::Twitter::Lite;
   print "Starting command handler\n";
+  print "Loading twitter OAuth\n";
+
+  $nt = Net::Twitter::Lite->new(
+    traits              => [qw/OAuth API::REST API::Search RetryOnError/],
+    user_agent_args     => { timeout => 8 }, #required for cases where twitter holds a connection open
+    consumer_key         => $settings->{consumer_key},
+    consumer_secret      => $settings->{consumer_secret},
+    access_token         => $settings->{access_token},
+    access_token_secret  => $settings->{access_token_secret},
+    legacy_lists_api     => 0,
+  );
+  
+  print "Loading commands\n";
+
+  #OPCODES:
+  #REP: reply to msg
+  #NOP: no-op
+  #SYS: system command (EXIT, RELOAD, etc.)
+  #my %commands;
+  $commands{'^#(\w+)$'} = { sub  => \&cmd_hashtag, op => "REP", };           # #searchterm
+  $commands{'^@(\w+)\s+(.*)$'} = { sub  => \&cmd_with_args, op => "REP", };  # @username <arguments>
+  $commands{'^@(\w+)$' } = { sub  => \&cmd_username, op => "REP", };         # @username
+  $commands{'^\.search (.+)$'} = { sub => \&cmd_search, op => "REP", };      # .search <terms>
+  $commands{'^\.id (\d+)$' } = { sub => \&cmd_getstatus, op => "REP", };     # .id <id_number>
+  $commands{'^\.quit$' } = { sub => sub { return "EXIT" }, op => "SYS", };  # .quit (needs fixing)
+  #
+  %aliases = ("sebenza" => "big_ben_clock",);
+
   &chandler;
   print "Chandler exited\n";
   exit 0;
 }
-close $PARENT;
 
+#parent only from now on
+close $PARENT;
+undef $nt; undef %aliases; undef %commands;
+
+use Encode qw/encode/;
+use HTML::Entities qw/decode_entities/;
+use AnyEvent;
+use AnyEvent::IRC::Client;
+use AnyEvent::IRC::Util qw/prefix_nick/;
+
+my $c = AnyEvent->condvar;
+my $con = new AnyEvent::IRC::Client;
+
+#commands
 sub cmd_username {
   my $name = shift;
   say "Searching: @".$name;
@@ -145,6 +159,7 @@ sub cmd_getstatus {
   my $result = &get_status($id);
   return $result if defined $result;
 }
+#
 
 #unfortunately get_status, search_username and search_generic have to be separate
 #as they all access different API portions (show_status, user_timeline and search
@@ -180,12 +195,12 @@ sub search_generic {
   my $r = $statuses->{results}[0];
   return "\x{02}@".$r->{from_user}."\x{02}: $r->{text} - http://twitter.com/$r->{from_user}/status/$r->{id}";
 }
+#
 
-#command-related subs
 sub sanitize_for_irc {
   my $text = shift;
   return unless defined $text;
-  $text =~ s/\n//g;
+  $text =~ s/\n/ /g;
   $text = HTML::Entities::decode_entities($text);
   return encode('utf8', $text);
 }
@@ -293,7 +308,7 @@ my $w; $w = AnyEvent->io(fh => \*$CHILD, poll => 'r', cb => sub {
 
   #deal with erroneus <$CHILD> read events by just killing the bot
   if (!defined $msg) {
-    warn "Chander crash! Oh dear lord!";
+    warn "Chandler crash! Oh dear lord!";
     undef $w;
     $c->broadcast;
     return;
