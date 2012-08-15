@@ -101,7 +101,7 @@ if (defined $pid && $pid == 0) {
 #parent only from now on
 close $PARENT;
 undef $nt; undef %aliases; undef %commands;
-undef $dbh;
+
 use Encode qw/encode/;
 use HTML::Entities qw/decode_entities/;
 use AnyEvent;
