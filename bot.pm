@@ -149,6 +149,7 @@ sub cmd_hashtag {
 sub cmd_gettrends {
   my $woeid = shift;
   $woeid = "23424977" if not $woeid;
+  say "Getting trends for WOEID: $woeid";
   my $trends = eval { $nt->trends_location($woeid); };
   warn "cmd_gettrends() error: $@" if $@; 
   return unless defined $trends;
