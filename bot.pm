@@ -4,7 +4,7 @@ use warnings;
 use utf8;
 use 5.010;
 use YAML qw/LoadFile/;
-use DBI;
+use DBD::SQLite;
 use Getopt::Std qw/getopts/;
 use Socket;
 use IO::Handle qw/autoflush/;
@@ -41,7 +41,6 @@ my $dbh = DBI->connect("dbi:SQLite:dbname=twitter.db","","");
 my $default_sth = $dbh->prepare("SELECT text FROM tweets WHERE user=? ORDER BY ID DESC LIMIT 1");
 my $random_sth = $dbh->prepare("SELECT text FROM tweets WHERE user=? ORDER BY RANDOM() LIMIT 1;");
 my $update_sth = $dbh->prepare("SELECT id, text FROM tweets WHERE user=? ORDER BY ID DESC LIMIT 5");
-
 
 print "Loading tracked users... ";
 #tracked users hash (contains latest known id)
@@ -89,6 +88,7 @@ if (defined $pid && $pid == 0) {
   $commands{'^@(\w+)$' } = { sub  => \&cmd_username, op => "REP", };         # @username
   $commands{'^\.search (.+)$'} = { sub => \&cmd_search, op => "REP", };      # .search <terms>
   $commands{'^\.id (\d+)$' } = { sub => \&cmd_getstatus, op => "REP", };     # .id <id_number>
+  $commands{'^\.trends\s*(.*)$' } = { sub => \&cmd_gettrends, op => "REP", };
   $commands{'^\.quit$' } = { sub => sub { return "EXIT" }, op => "SYS", };  # .quit (needs fixing)
   #
   %aliases = ("sebenza" => "big_ben_clock",);
@@ -101,7 +101,7 @@ if (defined $pid && $pid == 0) {
 #parent only from now on
 close $PARENT;
 undef $nt; undef %aliases; undef %commands;
-
+undef $dbh;
 use Encode qw/encode/;
 use HTML::Entities qw/decode_entities/;
 use AnyEvent;
@@ -144,6 +144,19 @@ sub cmd_hashtag {
   say "Searching: #$hashtag";
   my $result = &search_generic("#".$hashtag);
   return $result if defined $result;
+}
+
+sub cmd_gettrends {
+  my $woeid = shift;
+  $woeid = "23424977" if not $woeid;
+  my $trends = eval { $nt->trends_location($woeid); };
+  warn "cmd_gettrends() error: $@" if $@; 
+  return unless defined $trends;
+  my @names;
+  for (@{@{$trends}[0]->{trends}}) {
+    push @names, $_->{name};
+  }
+  return "\x{02}Trending:\x{02} ".join( ', ', @names ) if scalar(@names);
 }
 
 sub cmd_search {
