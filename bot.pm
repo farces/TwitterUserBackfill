@@ -3,7 +3,7 @@ use strict;
 use warnings;
 use utf8;
 use 5.010;
-use YAML qw/LoadFile/;
+use YAML::XS qw/LoadFile/;
 use DBD::SQLite;
 use Getopt::Std qw/getopts/;
 use Socket;
@@ -33,8 +33,8 @@ my $twitter_cfg_file = !defined $opt_s        ? "config.yaml" :
 
 print "Using twitter config from $twitter_cfg_file\n";
 print "Using bot config from $bot_cfg_file\n";
-my ($settings) = YAML::LoadFile($twitter_cfg_file);
-my $bot_settings = YAML::LoadFile($bot_cfg_file);
+my ($settings) = YAML::XS::LoadFile($twitter_cfg_file);
+my $bot_settings = YAML::XS::LoadFile($bot_cfg_file);
 
 #database
 my $dbh = DBI->connect("dbi:SQLite:dbname=twitter.db","","");

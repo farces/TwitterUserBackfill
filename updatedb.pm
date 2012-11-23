@@ -6,7 +6,7 @@ use strict;
 use 5.010;
 use warnings;
 use T_B; #use twitter backfill package
-use YAML qw/LoadFile/;
+use YAML::XS qw/LoadFile/;
 use DBI;
 
 my $dbh = DBI->connect("dbi:SQLite:dbname=twitter.db","","");
