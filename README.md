@@ -17,4 +17,4 @@ Usage
 ### Additional Arguments
 -d: run bot in "dumb" mode (will not check for updates to user statuses). This is useful if running multiple bots on multiple servers, or if you are running updatedb.pm externally.
 
--s *&lt;settings_name&gt;*: supply a different bot.yaml file with alternate servers and channels to join. File must be called bot.*&lt;settings_name&gt;*.yaml
+-s *&lt;settings_name&gt;*: supply a different bot.yaml file with alternate servers and channels to join. File must be called bot.&lt;settings_name&gt;.yaml
