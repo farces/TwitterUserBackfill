@@ -209,6 +209,24 @@ sub search_generic {
   my $r = $statuses->{results}[0];
   return "\x{02}@".$r->{from_user}."\x{02}: $r->{text} - http://twitter.com/$r->{from_user}/status/$r->{id}";
 }
+
+#gen_response(args, opt opcode)
+#Generates a response hash { message => args, opcode => opcode, )
+#where message can be any type and opcode must be a documented 
+#response opcode, else it is defaulted to "REP" (reply). Behavior of
+#any unknown opcode is undefined.
+sub gen_response {
+  my $args = shift;
+  my $opcode = shift;
+  if (!defined $opcode) {
+    $opcode = "REP";
+  }
+
+  my %result;
+  $result{opcode} = $opcode;
+  $result{message} = $args;
+  return \%result;
+}
 #
 
 sub sanitize_for_irc {
