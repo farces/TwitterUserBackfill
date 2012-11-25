@@ -89,6 +89,7 @@ if (defined $pid && $pid == 0) {
   $commands{'^\.search (.+)$'} = { sub => \&cmd_search, op => "REP", };      # .search <terms>
   $commands{'^\.id (\d+)$' } = { sub => \&cmd_getstatus, op => "REP", };     # .id <id_number>
   $commands{'^\.trends\s*(.*)$' } = { sub => \&cmd_gettrends, op => "REP", };
+  $commands{'^\.addwatch (.+)$' } = { sub => \&cmd_addwatch, };              # .addwatch <username>
   $commands{'^\.quit$' } = { sub => sub { return "EXIT" }, op => "SYS", };  # .quit (needs fixing)
   #
   %aliases = ("sebenza" => "big_ben_clock",);
@@ -112,6 +113,13 @@ my $c = AnyEvent->condvar;
 my $con = new AnyEvent::IRC::Client;
 
 #commands
+sub cmd_addwatch {
+  my $name = shift;
+  say "Adding watched user: $name";
+  #todo: gen response 1: update settings
+  #                   2: reply confirmation
+}
+
 sub cmd_username {
   my $name = shift;
   say "Searching: @".$name;
@@ -229,6 +237,15 @@ sub gen_response {
 }
 #
 
+#saves the %settings hash to file, so that updatedb.pm is kept
+#%settings can be live-updated to add additional tracked users.
+sub save_settings {
+  open CONFIG, ">", $twitter_cfg_file or die $!;
+  print CONFIG YAML::XS::Dump(\$settings);
+  close CONFIG;
+  #todo: this
+}
+
 sub sanitize_for_irc {
   my $text = shift;
   return unless defined $text;
@@ -293,6 +310,15 @@ sub chandler {
       if ($work->{msg} =~ /$_/) {
         my $run = $commands{$_}->{sub};
         #run command, with regexp matches $1 and $2 if defined (allows bare .command handling).
+        #todo: this must change: $run will return an array of responses, with opcode pre-defined
+        #so it will be my $result = $run-> ...
+        #foreach (@$result) {
+        #   print $PARENT encode_json($_) if $_;
+        #}
+        #however currently undecided as to whether to json_encode the array and pass that to
+        #$PARENT, to save on encode/decode cycles (I think it's very slightly more efficient
+        #to encode/decode once, but the over head on it is so low that the benefit may be
+        #outweighed by having parent more complex/aware.
         my $result = $run->(defined $1 ? lc $1 : undef , defined $2 ? lc $2 : undef);
         my $data = { op => $commands{$_}->{op}, payload => { target => $work->{target}, msg => $result },};
         print $PARENT encode_json($data)."\n" if $result;
