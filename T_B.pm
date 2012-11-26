@@ -75,7 +75,7 @@ sub backfill {
 
     #if statuses returned are < the criteria for determining if all posts
     #were returned in a single request, return
-    return 0 if (scalar(@$statuses) < ($self->{posts_per_request}-25));
+    return 0 if (scalar(@$statuses) < ($self->{posts_per_request}-120));
     
     my $new_min;
     while(1) {
@@ -90,7 +90,7 @@ sub backfill {
         last if not defined $new_min;
         last unless ($new_min < $min);
         
-        last if (scalar(@$statuses) < ($self->{posts_per_request}-25));
+        last if (scalar(@$statuses) < ($self->{posts_per_request}-120));
         $min = $new_min-1;
         sleep($self->{request_rate});
     }

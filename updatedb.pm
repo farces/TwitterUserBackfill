@@ -18,7 +18,7 @@ my $insert_sth = $dbh->prepare($insert_query);
 #example callback that prints the id and text values, and stores data to an sqlite database.
 sub my_sub {
     my $status = shift;
-    $insert_sth->execute($status->{id},$status->{user}->{screen_name}, $status->{text});
+    $insert_sth->execute($status->{id},lc $status->{user}->{screen_name}, $status->{text});
     #say $status->{id} . " - " . $status->{text};
 }
 
@@ -44,12 +44,12 @@ my $sth = $dbh->prepare($query);
 
 for (@{$settings->{users}}) {
     #say "Requesting Tweets for $_...";
-    my $result=$dbh->selectrow_hashref($sth,undef,$_);
+    my $result=$dbh->selectrow_hashref($sth,undef,lc $_);
     if (defined $result) {
         #say "Existing tweets found, requesting latest since $result->{id}.";
         $x->recent($_,\&my_sub, $result->{id});
     } else {
-        #say "No existing tweets found, filling all.";
+      3#say "No existing tweets found, filling all.";
         $x->backfill($_, \&my_sub);
     }   
 }

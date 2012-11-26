@@ -45,15 +45,10 @@ my $update_sth = $dbh->prepare("SELECT id, text FROM tweets WHERE user=? ORDER B
 print "Loading tracked users... ";
 #tracked users hash (contains latest known id)
 my %tracked;
+
 foreach (@{$settings->{users}}) {
-  my $result = $dbh->selectrow_hashref($update_sth,undef,$_);
-  if (defined $result) {
-    $tracked{$_} = $result->{id};
-  } else {
-    $tracked{$_} = 0;
-  }
+  $tracked{$_} = &latest_from_db($_);
 }
-print join(",", keys %tracked)."\n";
 
 #fork child to handle commands
 my $pid = fork();
@@ -114,14 +109,26 @@ use AnyEvent::IRC::Util qw/prefix_nick/;
 my $c = AnyEvent->condvar;
 my $con = new AnyEvent::IRC::Client;
 
+print join(",", keys %tracked)."\n";
+
 #commands
+
+sub latest_from_db {
+  my $name = shift;
+  my $result = $dbh->selectrow_hashref($update_sth,undef,lc $name);
+  if (defined $result) {
+    return $result->{id};
+  } else {
+    return 0;
+  }
+}
 
 sub cmd_addwatch {
   my $name = shift;
   say "Adding watched user: $name";
   my @response;
   if (!defined $tracked{$name}) {
-    $tracked{$name} = 0; #child has a separate copy of tracked, so this is required for @<name>
+    $tracked{$name} = &latest_from_db($name); #child has a separate copy of tracked
     push @response, &gen_response({ action => "ADD_WATCH", name => $name, }, "SYS");
     push @response, &gen_response("$name added.");
     return @response;
@@ -144,7 +151,7 @@ sub cmd_delwatch {
 
 sub cmd_listwatch {
   say "Listing followed users.";
-  return &gen_response("Currently following: ".join(",", keys %tracked));
+  return &gen_response("Currently following: ".join(", ", keys %tracked));
 }
 
 sub cmd_username {
@@ -152,12 +159,13 @@ sub cmd_username {
   say "Searching: @".$name;
   #if username is one that is listed in the config, pull an entry from the db
   if (grep {$_ eq $name} keys %tracked) {
-    my $result = $dbh->selectrow_hashref($random_sth,undef,$name);
+    my $result = $dbh->selectrow_hashref($random_sth,undef,lc $name);
     return &gen_response($result->{text}) if defined $result;
   } else {
     my $result = &search_username($name);
     return &gen_response($result) if defined $result;
   }
+  return;
 }
 
 sub cmd_with_args {
@@ -280,7 +288,7 @@ sub sanitize_for_irc {
 
 sub tick_update_posts {
   foreach (keys %tracked) {
-    $update_sth->execute($_);
+    $update_sth->execute(lc $_);
     while (my $result = $update_sth->fetchrow_hashref) {
       if ($result->{id} > $tracked{$_}) {
         eval { 
@@ -407,7 +415,7 @@ my $w; $w = AnyEvent->io(fh => \*$CHILD, poll => 'r', cb => sub {
         $c->broadcast;
       } elsif ($message->{action} eq "ADD_WATCH") {
         push @{$settings->{users}}, $message->{name};
-        $tracked{$message->{name}} = 0;
+        $tracked{$message->{name}} = &latest_from_db($message->{name});
         &save_settings;
       } elsif ($message->{action} eq "DEL_WATCH") {
         delete $tracked{$message->{name}};
