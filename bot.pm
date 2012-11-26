@@ -73,21 +73,18 @@ if (defined $pid && $pid == 0) {
   
   print "Loading commands\n";
 
-  #OPCODES:
-  #REP: reply to msg
-  #NOP: no-op
-  #SYS: system command (EXIT, RELOAD, etc.)
-  #my %commands;
-  $commands{'^#(\w+)$'} = { sub  => \&cmd_hashtag, };           # #searchterm
-  $commands{'^@(\w+)\s+(.*)$'} = { sub  => \&cmd_with_args, };  # @username <arguments>
-  $commands{'^@(\w+)$' } = { sub  => \&cmd_username, };         # @username
+  $commands{'^#(\w+)$'} = { sub  => \&cmd_hashtag, };           # #<hashtag>
+  $commands{'^@(\w+)\s+(.*)$'} = { sub  => \&cmd_with_args, };  # @<username> <arguments>
+  $commands{'^@(\w+)$' } = { sub  => \&cmd_username, };         # @<username>
   $commands{'^\.search (.+)$'} = { sub => \&cmd_search, };      # .search <terms>
   $commands{'^\.id (\d+)$' } = { sub => \&cmd_getstatus, };     # .id <id_number>
-  $commands{'^\.trends\s*(.*)$' } = { sub => \&cmd_gettrends, };
+  $commands{'^\.trends\s*(.*)$' } = { sub => \&cmd_gettrends, };# .trends <WOEID>
   $commands{'^\.addwatch (.+)$' } = { sub => \&cmd_addwatch, }; # .addwatch <username>
-  $commands{'^\.delwatch (.+)$' } = { sub => \&cmd_delwatch, };
-  $commands{'^\.quit$' } = { sub => sub { return &gen_response({ action => "EXIT" }, "SYS"); }, };  # .quit
-  $commands{'^\.list' } = { sub => \&cmd_listwatch, }; 
+  $commands{'^\.delwatch (.+)$' } = { sub => \&cmd_delwatch, }; # .delwatch <username>
+  $commands{'^\.quit$' } = { sub => sub { 
+      return &gen_response({ action => "EXIT" }, "SYS"); 
+    }, };  # .quit
+  $commands{'^\.list' } = { sub => \&cmd_listwatch, };          # .list
   #
   %aliases = ("sebenza" => "big_ben_clock",);
 
@@ -112,17 +109,6 @@ my $con = new AnyEvent::IRC::Client;
 print join(",", keys %tracked)."\n";
 
 #commands
-
-sub latest_from_db {
-  my $name = shift;
-  my $result = $dbh->selectrow_hashref($update_sth,undef,lc $name);
-  if (defined $result) {
-    return $result->{id};
-  } else {
-    return 0;
-  }
-}
-
 sub cmd_addwatch {
   my $name = shift;
   say "Adding watched user: $name";
@@ -252,30 +238,31 @@ sub search_generic {
   return "\x{02}@".$r->{from_user}."\x{02}: $r->{text} - http://twitter.com/$r->{from_user}/status/$r->{id}";
 }
 
-#gen_response(args, opt opcode)
-#Generates a response hash { message => args, opcode => opcode, )
-#where message can be any type and opcode must be a documented 
-#response opcode, else it is defaulted to "REP" (reply). Behavior of
-#any unknown opcode is undefined.
 sub gen_response {
   my $args = shift;
   my $opcode = shift;
-  if (!defined $opcode) {
-    $opcode = "REP";
-  }
-
-  my $result = { op => $opcode, payload => { target => '', msg => $args, }, };
+  $opcode = "REP" if !defined $opcode;
+  my $result = { op => $opcode, payload => { msg => $args, }, };
   return $result;
 }
-#
 
-#saves the %settings hash to file, so that updatedb.pm is kept
-#%settings can be live-updated to add additional tracked users.
+#saves the $settings hash to file, since updatedb.pm loads it externally.
+#$settings be live-updated to add/remove tracked users
 sub save_settings {
   open CONFIG, ">", $twitter_cfg_file or die $!;
   print CONFIG YAML::XS::Dump($settings);
   close CONFIG;
   say "Settings saved.";
+}
+
+sub latest_from_db {
+  my $name = shift;
+  my $result = $dbh->selectrow_hashref($update_sth,undef,lc $name);
+  if (defined $result) {
+    return $result->{id};
+  } else {
+    return 0;
+  }
 }
 
 sub sanitize_for_irc {
@@ -343,10 +330,9 @@ sub chandler {
         my $run = $commands{$_}->{sub};
         #run command, with regexp matches $1 and $2 if defined (allows bare .command handling).
         my @result = $run->(defined $1 ? lc $1 : undef , defined $2 ? lc $2 : undef);
-        
-        #update target in each response
+       
         foreach (@result) {
-          $_->{payload}->{target} = $work->{target};
+          $_->{payload}->{target} = $work->{target} if !defined $_->{payload}->{target};
         }
         print $PARENT encode_json(\@result)."\n" if @result;
         last;
@@ -407,19 +393,23 @@ my $w; $w = AnyEvent->io(fh => \*$CHILD, poll => 'r', cb => sub {
   foreach (@$data) {
     my $op = $_->{op};
     if ($op eq "REP") {
+      #REPLY action, payload => msg, target
       $con->send_srv(PRIVMSG => $_->{payload}->{target}, &sanitize_for_irc($_->{payload}->{msg}));
     } elsif ($op eq "SYS") {
+      #SYSTEM action, payload => msg => action, [optional]
       my $message = $_->{payload}->{msg};
       if ($message->{action} eq "EXIT") {
+        #SYS:EXIT msg => name
         undef $w;
         $c->broadcast;
       } elsif ($message->{action} eq "ADD_WATCH") {
+        #SYS:Add new watched user: msg => name
         push @{$settings->{users}}, $message->{name};
         $tracked{$message->{name}} = &latest_from_db($message->{name});
         &save_settings;
       } elsif ($message->{action} eq "DEL_WATCH") {
+        #SYS:Remove watched user: msg => name
         delete $tracked{$message->{name}};
-        
         my $index = 0;
         $index++ until $settings->{users}[$index] eq $message->{name};
         splice(@{$settings->{users}},$index,1);
