@@ -126,12 +126,10 @@ sub cmd_username {
   #if username is one that is listed in the config, pull an entry from the db
   if (grep {$_ eq $name} keys %tracked) {
     my $result = $dbh->selectrow_hashref($random_sth,undef,$name);
-    push my @response, &gen_response($result->{text}) if defined $result;
-    return @response;
+    return &gen_response($result->{text}) if defined $result;
   } else {
     my $result = &search_username($name);
-    push my @response, &gen_response($result) if defined $result;
-    return @response;
+    return &gen_response($result) if defined $result;
   }
 }
 
@@ -140,8 +138,7 @@ sub cmd_with_args {
   if ($tracked{$name}) { 
     if ($args eq "latest") {
       my $result = $dbh->selectrow_hashref($default_sth,undef,$name);
-      push my @response, &gen_response($result->{text});
-      return @response;
+      return &gen_response($result->{text});
     } else {
       #todo: implement some kind of search
 
@@ -154,8 +151,7 @@ sub cmd_hashtag {
   my $hashtag = shift;
   say "Searching: #$hashtag";
   my $result = &search_generic("#".$hashtag);
-  push my @response, &gen_response($result) if defined $result;
-  return @response;
+  return &gen_response($result) if defined $result;
 }
 
 sub cmd_gettrends {
@@ -169,24 +165,21 @@ sub cmd_gettrends {
   for (@{@{$trends}[0]->{trends}}) {
     push @names, $_->{name};
   }
-  push my @response, &gen_response("\x{02}Trending:\x{02} ".join( ', ', @names )) if scalar(@names);
-  return @response;
+  return &gen_response("\x{02}Trending:\x{02} ".join( ', ', @names )) if scalar(@names);
 }
 
 sub cmd_search {
   my $query = shift;
   say "Searching: $query";
   my $result = &search_generic($query);
-  push my @response, &gen_response($result) if defined $result;
-  return @response;
+  return &gen_response($result) if defined $result;
 }
 
 sub cmd_getstatus { 
   my $id = shift;
   say "Getting status: $id";
   my $result = &get_status($id);
-  push my @response, &gen_response($result) if defined $result;
-  return @response;
+  return &gen_response($result) if defined $result;
 }
 #
 
