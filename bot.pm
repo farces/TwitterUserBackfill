@@ -1,4 +1,4 @@
-#!/usr/bin/perl
+#!/usr/bin/env perl
 use strict;
 use warnings;
 use utf8;
@@ -83,14 +83,14 @@ if (defined $pid && $pid == 0) {
   #NOP: no-op
   #SYS: system command (EXIT, RELOAD, etc.)
   #my %commands;
-  $commands{'^#(\w+)$'} = { sub  => \&cmd_hashtag, op => "REP", };           # #searchterm
-  $commands{'^@(\w+)\s+(.*)$'} = { sub  => \&cmd_with_args, op => "REP", };  # @username <arguments>
-  $commands{'^@(\w+)$' } = { sub  => \&cmd_username, op => "REP", };         # @username
-  $commands{'^\.search (.+)$'} = { sub => \&cmd_search, op => "REP", };      # .search <terms>
-  $commands{'^\.id (\d+)$' } = { sub => \&cmd_getstatus, op => "REP", };     # .id <id_number>
-  $commands{'^\.trends\s*(.*)$' } = { sub => \&cmd_gettrends, op => "REP", };
-  $commands{'^\.addwatch (.+)$' } = { sub => \&cmd_addwatch, };              # .addwatch <username>
-  $commands{'^\.quit$' } = { sub => sub { return "EXIT" }, op => "SYS", };  # .quit (needs fixing)
+  $commands{'^#(\w+)$'} = { sub  => \&cmd_hashtag, };           # #searchterm
+  $commands{'^@(\w+)\s+(.*)$'} = { sub  => \&cmd_with_args, };  # @username <arguments>
+  $commands{'^@(\w+)$' } = { sub  => \&cmd_username, };         # @username
+  $commands{'^\.search (.+)$'} = { sub => \&cmd_search, };      # .search <terms>
+  $commands{'^\.id (\d+)$' } = { sub => \&cmd_getstatus, };     # .id <id_number>
+  $commands{'^\.trends\s*(.*)$' } = { sub => \&cmd_gettrends, };
+  $commands{'^\.addwatch (.+)$' } = { sub => \&cmd_addwatch, }; # .addwatch <username>
+  $commands{'^\.quit$' } = { sub => sub { return &gen_response("EXIT", "SYS"); }, };  # .quit
   #
   %aliases = ("sebenza" => "big_ben_clock",);
 
@@ -126,10 +126,12 @@ sub cmd_username {
   #if username is one that is listed in the config, pull an entry from the db
   if (grep {$_ eq $name} keys %tracked) {
     my $result = $dbh->selectrow_hashref($random_sth,undef,$name);
-    return $result->{text};
+    push my @response, &gen_response($result->{text}) if defined $result;
+    return @response;
   } else {
     my $result = &search_username($name);
-    return $result if defined $result;
+    push my @response, &gen_response($result) if defined $result;
+    return @response;
   }
 }
 
@@ -138,7 +140,8 @@ sub cmd_with_args {
   if ($tracked{$name}) { 
     if ($args eq "latest") {
       my $result = $dbh->selectrow_hashref($default_sth,undef,$name);
-      return $result->{text};
+      push my @response, &gen_response($result->{text});
+      return @response;
     } else {
       #todo: implement some kind of search
 
@@ -151,7 +154,8 @@ sub cmd_hashtag {
   my $hashtag = shift;
   say "Searching: #$hashtag";
   my $result = &search_generic("#".$hashtag);
-  return $result if defined $result;
+  push my @response, &gen_response($result) if defined $result;
+  return @response;
 }
 
 sub cmd_gettrends {
@@ -165,21 +169,24 @@ sub cmd_gettrends {
   for (@{@{$trends}[0]->{trends}}) {
     push @names, $_->{name};
   }
-  return "\x{02}Trending:\x{02} ".join( ', ', @names ) if scalar(@names);
+  push my @response, &gen_response("\x{02}Trending:\x{02} ".join( ', ', @names )) if scalar(@names);
+  return @response;
 }
 
 sub cmd_search {
   my $query = shift;
   say "Searching: $query";
   my $result = &search_generic($query);
-  return $result if defined $result;
+  push my @response, &gen_response($result) if defined $result;
+  return @response;
 }
 
 sub cmd_getstatus { 
   my $id = shift;
   say "Getting status: $id";
   my $result = &get_status($id);
-  return $result if defined $result;
+  push my @response, &gen_response($result) if defined $result;
+  return @response;
 }
 #
 
@@ -204,7 +211,6 @@ sub search_username {
 
   my $statuses = eval { $nt->user_timeline({ id => "$name", count => 1, }); }; 
   warn "search_username(); error: $@" if $@;
-
   return @$statuses[0]->{text} if defined @$statuses;
 }
 
@@ -230,10 +236,8 @@ sub gen_response {
     $opcode = "REP";
   }
 
-  my %result;
-  $result{opcode} = $opcode;
-  $result{message} = $args;
-  return \%result;
+  my $result = { op => $opcode, payload => { target => '', msg => $args, }, };
+  return $result;
 }
 #
 
@@ -310,18 +314,18 @@ sub chandler {
       if ($work->{msg} =~ /$_/) {
         my $run = $commands{$_}->{sub};
         #run command, with regexp matches $1 and $2 if defined (allows bare .command handling).
-        #todo: this must change: $run will return an array of responses, with opcode pre-defined
-        #so it will be my $result = $run-> ...
-        #foreach (@$result) {
-        #   print $PARENT encode_json($_) if $_;
-        #}
-        #however currently undecided as to whether to json_encode the array and pass that to
-        #$PARENT, to save on encode/decode cycles (I think it's very slightly more efficient
-        #to encode/decode once, but the over head on it is so low that the benefit may be
-        #outweighed by having parent more complex/aware.
-        my $result = $run->(defined $1 ? lc $1 : undef , defined $2 ? lc $2 : undef);
-        my $data = { op => $commands{$_}->{op}, payload => { target => $work->{target}, msg => $result },};
-        print $PARENT encode_json($data)."\n" if $result;
+        my @result = $run->(defined $1 ? lc $1 : undef , defined $2 ? lc $2 : undef);
+        
+        #i hate this
+        foreach (@result) {
+          $_->{payload}->{target} = $work->{target}; #inject recipient into response
+          print $PARENT encode_json($_)."\n" if $_;
+        }
+        #
+        
+        #my $data = { op => $commands{$_}->{op}, payload => { target => $work->{target}, msg => "goner" },};
+        #say Data::Dumper::Dump(\$data);
+        #print $PARENT encode_json($data)."\n" if $result;
         last;
       }
     }
@@ -376,7 +380,7 @@ my $w; $w = AnyEvent->io(fh => \*$CHILD, poll => 'r', cb => sub {
   my $data = decode_json($msg);
   warn $@ if $@;
   return if $@;
-
+  
   if ($data->{op} eq "REP") {
     $con->send_srv(PRIVMSG => $data->{payload}->{target}, &sanitize_for_irc($data->{payload}->{msg}));
   } elsif ($data->{op} eq "SYS") {
