@@ -90,7 +90,9 @@ if (defined $pid && $pid == 0) {
   $commands{'^\.id (\d+)$' } = { sub => \&cmd_getstatus, };     # .id <id_number>
   $commands{'^\.trends\s*(.*)$' } = { sub => \&cmd_gettrends, };
   $commands{'^\.addwatch (.+)$' } = { sub => \&cmd_addwatch, }; # .addwatch <username>
-  $commands{'^\.quit$' } = { sub => sub { return &gen_response("EXIT", "SYS"); }, };  # .quit
+  $commands{'^\.delwatch (.+)$' } = { sub => \&cmd_delwatch, };
+  $commands{'^\.quit$' } = { sub => sub { return &gen_response({ action => "EXIT" }, "SYS"); }, };  # .quit
+  $commands{'^\.list' } = { sub => \&cmd_listwatch, }; 
   #
   %aliases = ("sebenza" => "big_ben_clock",);
 
@@ -113,11 +115,36 @@ my $c = AnyEvent->condvar;
 my $con = new AnyEvent::IRC::Client;
 
 #commands
+
 sub cmd_addwatch {
   my $name = shift;
   say "Adding watched user: $name";
-  #todo: gen response 1: update settings
-  #                   2: reply confirmation
+  my @response;
+  if (!defined $tracked{$name}) {
+    $tracked{$name} = 0; #child has a separate copy of tracked, so this is required for @<name>
+    push @response, &gen_response({ action => "ADD_WATCH", name => $name, }, "SYS");
+    push @response, &gen_response("$name added.");
+    return @response;
+  }
+    return &gen_response("$name already tracked.");
+}
+
+sub cmd_delwatch {
+  my $name = shift;
+  say "Removing watched user: $name";
+  if (!defined $tracked{$name}) {
+    return &gen_response("Not currently following $name");
+  }
+  delete $tracked{$name};
+  my @response;
+  push @response, &gen_response({ action => "DEL_WATCH", name => $name, }, "SYS");
+  push @response, &gen_response("$name removed.");
+  return @response;
+}
+
+sub cmd_listwatch {
+  say "Listing followed users.";
+  return &gen_response("Currently following: ".join(",", keys %tracked));
 }
 
 sub cmd_username {
@@ -238,9 +265,9 @@ sub gen_response {
 #%settings can be live-updated to add additional tracked users.
 sub save_settings {
   open CONFIG, ">", $twitter_cfg_file or die $!;
-  print CONFIG YAML::XS::Dump(\$settings);
+  print CONFIG YAML::XS::Dump($settings);
   close CONFIG;
-  #todo: this
+  say "Settings saved.";
 }
 
 sub sanitize_for_irc {
@@ -309,16 +336,11 @@ sub chandler {
         #run command, with regexp matches $1 and $2 if defined (allows bare .command handling).
         my @result = $run->(defined $1 ? lc $1 : undef , defined $2 ? lc $2 : undef);
         
-        #i hate this
+        #update target in each response
         foreach (@result) {
-          $_->{payload}->{target} = $work->{target}; #inject recipient into response
-          print $PARENT encode_json($_)."\n" if $_;
+          $_->{payload}->{target} = $work->{target};
         }
-        #
-        
-        #my $data = { op => $commands{$_}->{op}, payload => { target => $work->{target}, msg => "goner" },};
-        #say Data::Dumper::Dump(\$data);
-        #print $PARENT encode_json($data)."\n" if $result;
+        print $PARENT encode_json(\@result)."\n" if @result;
         last;
       }
     }
@@ -374,12 +396,28 @@ my $w; $w = AnyEvent->io(fh => \*$CHILD, poll => 'r', cb => sub {
   warn $@ if $@;
   return if $@;
   
-  if ($data->{op} eq "REP") {
-    $con->send_srv(PRIVMSG => $data->{payload}->{target}, &sanitize_for_irc($data->{payload}->{msg}));
-  } elsif ($data->{op} eq "SYS") {
-    my $action = $data->{payload}->{msg};
-    undef $w if ($action eq "EXIT");
-    $c->broadcast if ($action eq "EXIT");
+  foreach (@$data) {
+    my $op = $_->{op};
+    if ($op eq "REP") {
+      $con->send_srv(PRIVMSG => $_->{payload}->{target}, &sanitize_for_irc($_->{payload}->{msg}));
+    } elsif ($op eq "SYS") {
+      my $message = $_->{payload}->{msg};
+      if ($message->{action} eq "EXIT") {
+        undef $w;
+        $c->broadcast;
+      } elsif ($message->{action} eq "ADD_WATCH") {
+        push @{$settings->{users}}, $message->{name};
+        $tracked{$message->{name}} = 0;
+        &save_settings;
+      } elsif ($message->{action} eq "DEL_WATCH") {
+        delete $tracked{$message->{name}};
+        
+        my $index = 0;
+        $index++ until $settings->{users}[$index] eq $message->{name};
+        splice(@{$settings->{users}},$index,1);
+        &save_settings;
+      }
+    }
   }
 });
 
