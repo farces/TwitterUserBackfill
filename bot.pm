@@ -73,18 +73,18 @@ if (defined $pid && $pid == 0) {
   
   print "Loading commands\n";
 
-  $commands{'^#(\w+)$'} = { sub  => \&cmd_hashtag, };           # #<hashtag>
-  $commands{'^@(\w+)\s+(.*)$'} = { sub  => \&cmd_with_args, };  # @<username> <arguments>
-  $commands{'^@(\w+)$' } = { sub  => \&cmd_username, };         # @<username>
-  $commands{'^\.search (.+)$'} = { sub => \&cmd_search, };      # .search <terms>
-  $commands{'^\.id (\d+)$' } = { sub => \&cmd_getstatus, };     # .id <id_number>
-  $commands{'^\.trends\s*(.*)$' } = { sub => \&cmd_gettrends, };# .trends <WOEID>
-  $commands{'^\.addwatch (.+)$' } = { sub => \&cmd_addwatch, }; # .addwatch <username>
-  $commands{'^\.delwatch (.+)$' } = { sub => \&cmd_delwatch, }; # .delwatch <username>
+  $commands{'^#(\w+)$'} = { handler => \&cmd_hashtag, };           # #<hashtag>
+  $commands{'^@(\w+)\s+(.*)$'} = { handler  => \&cmd_with_args, };  # @<username> <arguments>
+  $commands{'^@(\w+)$' } = { handler => \&cmd_username, };         # @<username>
+  $commands{'^\.search (.+)$'} = { handler => \&cmd_search, };      # .search <terms>
+  $commands{'^\.id (\d+)$' } = { handler => \&cmd_getstatus, };     # .id <id_number>
+  $commands{'^\.trends\s*(.*)$' } = { handler => \&cmd_gettrends, };# .trends <WOEID>
+  $commands{'^\.addwatch (.+)$' } = { handler => \&cmd_addwatch, }; # .addwatch <username>
+  $commands{'^\.delwatch (.+)$' } = { handler => \&cmd_delwatch, }; # .delwatch <username>
   $commands{'^\.quit$' } = { 
-    sub => sub { return &gen_response({ action => "EXIT" }, "SYS"); }, 
+    handler => sub { return &gen_response({ action => "EXIT" }, "SYS"); }, 
     };  # .quit
-  $commands{'^\.list$' } = { sub => \&cmd_listwatch, };          # .list
+  $commands{'^\.list$' } = { handler => \&cmd_listwatch, };          # .list
   
   %aliases = ("sebenza" => "big_ben_clock",);
   
@@ -328,7 +328,7 @@ sub chandler {
 
     foreach (keys %commands) {
       if ($work->{msg} =~ /$_/) {
-        my $run = $commands{$_}->{sub};
+        my $run = $commands{$_}->{handler};
         #run command, with regexp matches $1 and $2 if defined (allows bare .command handling).
         my @result = $run->(defined $1 ? lc $1 : undef , defined $2 ? lc $2 : undef);
        
