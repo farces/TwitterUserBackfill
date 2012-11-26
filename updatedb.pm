@@ -49,7 +49,7 @@ for (@{$settings->{users}}) {
         #say "Existing tweets found, requesting latest since $result->{id}.";
         $x->recent($_,\&my_sub, $result->{id});
     } else {
-      3#say "No existing tweets found, filling all.";
+        #say "No existing tweets found, filling all.";
         $x->backfill($_, \&my_sub);
     }   
 }
