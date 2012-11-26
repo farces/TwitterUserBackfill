@@ -81,13 +81,14 @@ if (defined $pid && $pid == 0) {
   $commands{'^\.trends\s*(.*)$' } = { sub => \&cmd_gettrends, };# .trends <WOEID>
   $commands{'^\.addwatch (.+)$' } = { sub => \&cmd_addwatch, }; # .addwatch <username>
   $commands{'^\.delwatch (.+)$' } = { sub => \&cmd_delwatch, }; # .delwatch <username>
-  $commands{'^\.quit$' } = { sub => sub { 
-      return &gen_response({ action => "EXIT" }, "SYS"); 
-    }, };  # .quit
-  $commands{'^\.list' } = { sub => \&cmd_listwatch, };          # .list
-  #
+  $commands{'^\.quit$' } = { 
+    sub => sub { return &gen_response({ action => "EXIT" }, "SYS"); }, 
+    };  # .quit
+  $commands{'^\.list$' } = { sub => \&cmd_listwatch, };          # .list
+  
   %aliases = ("sebenza" => "big_ben_clock",);
-
+  
+  #start command handler
   &chandler;
   print "Chandler exited\n";
   exit 0;
