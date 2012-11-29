@@ -331,11 +331,15 @@ sub chandler {
         my $run = $commands{$_}->{handler};
         #run command, with regexp matches $1 and $2 if defined (allows bare .command handling).
         my @result = $run->(defined $1 ? lc $1 : undef , defined $2 ? lc $2 : undef);
-       
+        
+        my @final;
         foreach (@result) {
-          $_->{payload}->{target} = $work->{target} if !defined $_->{payload}->{target};
+          if (ref($_)) {
+            $_->{payload}->{target} = $work->{target} if !defined $_->{payload}->{target};
+            push @final, $_;
+          }
         }
-        print $PARENT encode_json(\@result)."\n" if @result;
+        print $PARENT encode_json(\@result)."\n" if @final;
         last;
       }
     }
