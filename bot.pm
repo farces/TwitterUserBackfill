@@ -113,8 +113,8 @@ print join(",", keys %tracked)."\n";
 sub cmd_addwatch {
   my $name = shift;
   say "Adding watched user: $name";
-  my @response;
   if (!defined $tracked{$name}) {
+    my @response; 
     $tracked{$name} = &latest_from_db($name); #child has a separate copy of tracked
     push @response, &gen_response({ action => "ADD_WATCH", name => $name, }, "SYS");
     push @response, &gen_response("$name added.");
@@ -157,9 +157,9 @@ sub cmd_username {
 
 sub cmd_with_args {
   my ($name, $args) = @_;
-  if ($tracked{$name}) { 
+  if (grep {$_ eq $name} keys %tracked) { 
     if ($args eq "latest") {
-      my $result = $dbh->selectrow_hashref($default_sth,undef,$name);
+      my $result = $dbh->selectrow_hashref($default_sth,undef, lc $name);
       return &gen_response($result->{text});
     } else {
       #todo: implement some kind of search
@@ -334,6 +334,7 @@ sub chandler {
         
         my @final;
         foreach (@result) {
+          #if item is not a ref, we've gotten an empty response from $run
           if (ref($_)) {
             $_->{payload}->{target} = $work->{target} if !defined $_->{payload}->{target};
             push @final, $_;
