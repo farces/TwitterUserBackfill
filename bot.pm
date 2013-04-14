@@ -270,7 +270,7 @@ sub sanitize_for_irc {
   my $text = shift;
   return unless defined $text;
   $text =~ s/\n/ /g;
-  $text = HTML::Entities::decode_entities($text);
+  $text = HTML::Entities::decode($text);
   return encode('utf8', $text);
 }
 
