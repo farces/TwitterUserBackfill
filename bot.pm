@@ -279,9 +279,11 @@ sub tick_update_posts {
     $update_sth->execute(lc $_);
     while (my $result = $update_sth->fetchrow_hashref) {
       if ($result->{id} > $tracked{$_}) {
-        eval { 
-          $con->send_srv(PRIVMSG => $bot_settings->{channels}[0], "\x{02}@".$_.":\x{02} $result->{text}");
-        };
+        if (!defined $opt_d) {
+          eval { 
+            $con->send_srv(PRIVMSG => $bot_settings->{channels}[0], "\x{02}@".$_.":\x{02} $result->{text}");
+          };
+        }
         warn $@ if $@;
         $tracked{$_} = $result->{id};
       }
@@ -294,6 +296,8 @@ sub tick {
   if (not $con->heap->{is_connected}) {
     &connect;
   }
+  &tick_update_posts;
+  
   return if defined $opt_d; #finish up if we're dumb
 
   my $pid = fork();
@@ -302,7 +306,6 @@ sub tick {
     exec("./updatedb.pm > /dev/null 2>&1 &");
     exit 0;
   }
-  &tick_update_posts;
 
   return;
 }
@@ -413,6 +416,7 @@ my $w; $w = AnyEvent->io(fh => \*$CHILD, poll => 'r', cb => sub {
         push @{$settings->{users}}, $message->{name};
         $tracked{$message->{name}} = &latest_from_db($message->{name});
         &save_settings;
+        &tick_update_posts;
       } elsif ($message->{action} eq "DEL_WATCH") {
         #SYS:Remove watched user: msg => name
         delete $tracked{$message->{name}};
