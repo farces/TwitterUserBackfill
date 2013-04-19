@@ -280,8 +280,11 @@ sub tick_update_posts {
     while (my $result = $update_sth->fetchrow_hashref) {
       if ($result->{id} > $tracked{$_}) {
         if (!defined $opt_d) {
-          eval { 
-            $con->send_srv(PRIVMSG => $bot_settings->{channels}[0], "\x{02}@".$_.":\x{02} $result->{text}");
+          eval {
+            #TODO: move this dumb shit into some helper function that automatically sanitizes
+            #the message and just call that.
+            my $tweet = &sanitize_for_irc($result->{text});
+            $con->send_srv(PRIVMSG => $bot_settings->{channels}[0], "\x{02}@".$_.":\x{02} $tweet");
           };
         }
         warn $@ if $@;
