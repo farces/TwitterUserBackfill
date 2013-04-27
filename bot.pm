@@ -42,35 +42,40 @@ my $default_sth = $dbh->prepare("SELECT text FROM tweets WHERE user=? ORDER BY I
 my $random_sth = $dbh->prepare("SELECT text FROM tweets WHERE user=? ORDER BY RANDOM() LIMIT 1;");
 my $update_sth = $dbh->prepare("SELECT id, text FROM tweets WHERE user=? ORDER BY ID DESC LIMIT 5");
 
-print "Loading tracked users... ";
-#tracked users hash (contains latest known id)
-my %tracked;
+print "Loading twitter OAuth\n";
 
-foreach (@{$settings->{users}}) {
-  $tracked{$_} = &latest_from_db($_);
+use Net::Twitter::Lite::WithAPIv1_1;
+my $nt = Net::Twitter::Lite::WithAPIv1_1->new(
+  traits              => [qw/OAuth API::REST API::Search RetryOnError/],
+  user_agent_args     => { timeout => 8 }, #required for cases where twitter holds a connection open
+  consumer_key         => $settings->{consumer_key},
+  consumer_secret      => $settings->{consumer_secret},
+  access_token         => $settings->{access_token},
+  access_token_secret  => $settings->{access_token_secret},
+);
+
+#this now loads tracked users from twitter's following users list
+print "Loading tracked users... ";
+my ($friends_list, %tracked);
+eval {
+  $friends_list = $nt->friends_list();
+};
+print $@ if $@;
+
+#for each tracked user, find the latest id in the database for them
+foreach (@{$friends_list->{users}}) {
+  $tracked{lc $_->{screen_name}} = &latest_from_db(lc $_->{screen_name});
 }
+#
 
 #fork child to handle commands
 my $pid = fork();
-my ($nt, %commands, %aliases);
+my (%commands, %aliases);
 if (defined $pid && $pid == 0) {
   #this block contains child set-up, including all command-related code and variables
   #to ensure the parent doesn't hold on to any unnecessary data and prevent multiple
   #initialization of net::twitter::lite
-  use Net::Twitter::Lite;
   print "Starting command handler\n";
-  print "Loading twitter OAuth\n";
-
-  $nt = Net::Twitter::Lite->new(
-    traits              => [qw/OAuth API::REST API::Search RetryOnError/],
-    user_agent_args     => { timeout => 8 }, #required for cases where twitter holds a connection open
-    consumer_key         => $settings->{consumer_key},
-    consumer_secret      => $settings->{consumer_secret},
-    access_token         => $settings->{access_token},
-    access_token_secret  => $settings->{access_token_secret},
-    legacy_lists_api     => 0,
-  );
-  
   print "Loading commands\n";
 
   $commands{'^#(\w+)$'} = { handler => \&cmd_hashtag, };           # #<hashtag>
@@ -79,8 +84,8 @@ if (defined $pid && $pid == 0) {
   $commands{'^\.search (.+)$'} = { handler => \&cmd_search, };      # .search <terms>
   $commands{'^\.id (\d+)$' } = { handler => \&cmd_getstatus, };     # .id <id_number>
   $commands{'^\.trends\s*(.*)$' } = { handler => \&cmd_gettrends, };# .trends <WOEID>
-  $commands{'^\.addwatch (.+)$' } = { handler => \&cmd_addwatch, }; # .addwatch <username>
-  $commands{'^\.delwatch (.+)$' } = { handler => \&cmd_delwatch, }; # .delwatch <username>
+  $commands{'^\.follow (.+)$' } = { handler => \&cmd_addwatch, }; # .addwatch <username>
+  $commands{'^\.unfollow (.+)$' } = { handler => \&cmd_delwatch, }; # .delwatch <username>
   $commands{'^\.quit$' } = { 
     handler => sub { return &gen_response({ action => "EXIT" }, "SYS"); }, 
     };  # .quit
@@ -96,7 +101,7 @@ if (defined $pid && $pid == 0) {
 
 #parent only from now on
 close $PARENT;
-undef $nt; undef %aliases; undef %commands;
+undef %aliases; undef %commands;
 
 use Encode qw/encode/;
 use HTML::Entities qw/decode_entities/;
@@ -107,7 +112,7 @@ use AnyEvent::IRC::Util qw/prefix_nick/;
 my $c = AnyEvent->condvar;
 my $con = new AnyEvent::IRC::Client;
 
-print join(",", keys %tracked)."\n";
+print "Following: ".join(",", keys %tracked)."\n";
 
 #commands
 sub cmd_addwatch {
@@ -231,12 +236,11 @@ sub search_username {
 
 sub search_generic {
   my $name = shift;
-
   my $statuses = eval { $nt->search({q => $name, lang => "en", count => 1,}); };
   warn "get_tweets(); error: $@" if $@;
-  return unless defined $statuses->{results}[0];
-  my $r = $statuses->{results}[0];
-  return "\x{02}@".$r->{from_user}."\x{02}: $r->{text} - http://twitter.com/$r->{from_user}/status/$r->{id}";
+  return unless defined @{$statuses->{statuses}}[0];
+  my $r = @{$statuses->{statuses}}[0];
+  return "\x{02}@".$r->{user}->{screen_name}."\x{02}: $r->{text} - http://twitter.com/$r->{user}->{screen_name}/status/$r->{id}";
 }
 
 sub gen_response {
@@ -306,7 +310,8 @@ sub tick {
   my $pid = fork();
   if (defined $pid && $pid == 0) {
     # child
-    exec("./updatedb.pm > /dev/null 2>&1 &");
+    #exec("./updatedb.pm > /dev/null 2>&1 &");
+    exec("./get_new.pm -s $twitter_cfg_file > /dev/null 2>&1 &");
     exit 0;
   }
 
