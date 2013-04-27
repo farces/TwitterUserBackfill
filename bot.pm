@@ -124,7 +124,7 @@ sub cmd_addwatch {
     my @response; 
     $tracked{$name} = &latest_from_db($name); #child has a separate copy of tracked
     $nt->create_friend({ screen_name => $name, });
-    push @response, &gen_response({ action => "ADD_WATCH", name => $name, }, "SYS");
+    push @response, &gen_response({ action => "SET_FOLLOWING", following => \%tracked, }, "SYS");
     push @response, &gen_response("$name added.");
     return @response;
   }
@@ -137,10 +137,11 @@ sub cmd_delwatch {
   if (!defined $tracked{$name}) {
     return &gen_response("Not currently following $name");
   }
+  
   delete $tracked{$name};
   $nt->unfollow({ screen_name => $name, });
   my @response;
-  push @response, &gen_response({ action => "DEL_WATCH", name => $name, }, "SYS");
+  push @response, &gen_response({ action => "SET_FOLLOWING", following => \%tracked, }, "SYS");
   push @response, &gen_response("$name removed.");
   return @response;
 }
@@ -357,6 +358,7 @@ sub connect {
     $con->send_srv (JOIN => $_);
   }
 }
+
 
 sub chandler {
   print "Chandler loaded\n";
