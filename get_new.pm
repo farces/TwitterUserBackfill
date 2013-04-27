@@ -48,7 +48,7 @@ my $latest = $dbh->selectrow_array("SELECT id FROM tweets ORDER BY ID DESC LIMIT
 print $latest."\n";
 
 eval {
-  my $statuses = $nt->home_timeline({ since_id => $latest, });
+  my $statuses = $nt->home_timeline({ since_id => $latest, exclude_replies => 1, });
   for my $status (@$statuses) {
     &store_tweet( $status );
   }
