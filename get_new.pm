@@ -9,6 +9,7 @@ use warnings;
 use YAML::XS qw/LoadFile/;
 use DBI;
 use Net::Twitter::Lite::WithAPIv1_1;
+use Getopt::Std qw /getopts/;
 
 my $dbh = DBI->connect("dbi:SQLite:dbname=twitter.db","","");
 
@@ -27,7 +28,11 @@ sub store_tweet {
 binmode STDOUT, ":utf8"; #required for STDOUT of some non-english characters
 
 #load twitter config
-my ($settings) = LoadFile('config.yaml');
+our($opt_s);
+getopts('s:');
+my $config = defined $opt_s ? $opt_s : "config.yaml";
+
+my ($settings) = LoadFile($config);
 
 my $nt = Net::Twitter::Lite::WithAPIv1_1->new(
    consumer_key         => $settings->{consumer_key},
