@@ -114,6 +114,7 @@ my $c = AnyEvent->condvar;
 my $con = new AnyEvent::IRC::Client;
 
 print "Following: ".join(",", keys %tracked)."\n";
+print "Performing background backfill.\n";
 
 #commands
 sub cmd_addwatch {
