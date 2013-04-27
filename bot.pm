@@ -86,6 +86,7 @@ if (defined $pid && $pid == 0) {
   $commands{'^\.trends\s*(.*)$' } = { handler => \&cmd_gettrends, };# .trends <WOEID>
   $commands{'^\.follow (.+)$' } = { handler => \&cmd_addwatch, }; # .addwatch <username>
   $commands{'^\.unfollow (.+)$' } = { handler => \&cmd_delwatch, }; # .delwatch <username>
+  $commands{'^\.update$' } = { handler => \&cmd_update, };        # .update
   $commands{'^\.quit$' } = { 
     handler => sub { return &gen_response({ action => "EXIT" }, "SYS"); }, 
     };  # .quit
@@ -146,6 +147,20 @@ sub cmd_delwatch {
 sub cmd_listwatch {
   say "Listing followed users.";
   return &gen_response("Currently following: ".join(", ", keys %tracked));
+}
+
+sub cmd_update {
+  my $friends_list;
+  eval {
+    $friends_list = $nt->friends_list();
+  };
+  print $@ if $@;
+
+  #for each tracked user, find the latest id in the database for them
+  foreach (@{$friends_list->{users}}) {
+    $tracked{lc $_->{screen_name}} = &latest_from_db(lc $_->{screen_name});
+  }
+  return &gen_response({ action => "SET_FOLLOWING", following => \%tracked, }, "SYS");
 }
 
 sub cmd_username {
@@ -311,14 +326,24 @@ sub tick {
 
   my $pid = fork();
   if (defined $pid && $pid == 0) {
-    # child
-    #exec("./updatedb.pm > /dev/null 2>&1 &");
     exec("./get_new.pm -s $twitter_cfg_file > /dev/null 2>&1 &");
     exit 0;
   }
 
   return;
 }
+
+sub backfill {
+  return if defined $opt_d; #finish up if we're dumb
+
+  my $pid = fork();
+  if (defined $pid && $pid == 0) {
+    exec("./updatedb.pm -s $twitter_cfg_file > /dev/null 2>&1 &");
+    exit 0;
+  }
+  return;
+}
+
 
 sub connect {
   $con->enable_ssl if $bot_settings->{ssl};
@@ -421,19 +446,10 @@ my $w; $w = AnyEvent->io(fh => \*$CHILD, poll => 'r', cb => sub {
         #SYS:EXIT msg => name
         undef $w;
         $c->broadcast;
-      } elsif ($message->{action} eq "ADD_WATCH") {
-        #SYS:Add new watched user: msg => name
-        push @{$settings->{users}}, $message->{name};
-        $tracked{$message->{name}} = &latest_from_db($message->{name});
-        &save_settings;
+      } elsif ($message->{action} eq "SET_FOLLOWING") {
+        %tracked = %{$message->{following}};
+        &backfill;
         &tick_update_posts;
-      } elsif ($message->{action} eq "DEL_WATCH") {
-        #SYS:Remove watched user: msg => name
-        delete $tracked{$message->{name}};
-        my $index = 0;
-        $index++ until $settings->{users}[$index] eq $message->{name};
-        splice(@{$settings->{users}},$index,1);
-        &save_settings;
       }
     }
   }
