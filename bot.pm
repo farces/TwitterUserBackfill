@@ -16,6 +16,10 @@ socketpair($CHILD, $PARENT, AF_UNIX, SOCK_STREAM, PF_UNSPEC) or die "socketpair 
 $PARENT->autoflush(1);
 $CHILD->autoflush(1);
 
+my $startup = 1; # this gets reset after first tick_update_posts is run
+                 # so that no posts pulled from the startup updatedb
+                 # are posted
+
 $SIG{CHLD} = 'IGNORE';
 
 binmode STDOUT, ":utf8"; 
@@ -40,7 +44,7 @@ my $bot_settings = YAML::XS::LoadFile($bot_cfg_file);
 my $dbh = DBI->connect("dbi:SQLite:dbname=twitter.db","","");
 my $default_sth = $dbh->prepare("SELECT text FROM tweets WHERE user=? ORDER BY ID DESC LIMIT 1");
 my $random_sth = $dbh->prepare("SELECT text FROM tweets WHERE user=? ORDER BY RANDOM() LIMIT 1;");
-my $update_sth = $dbh->prepare("SELECT id, text FROM tweets WHERE user=? ORDER BY ID DESC LIMIT 5");
+my $update_sth = $dbh->prepare("SELECT id, text FROM (SELECT id, text FROM tweets WHERE user=? ORDER BY id DESC LIMIT 5) ORDER BY id ASC");
 
 print "Loading twitter OAuth\n";
 
@@ -64,7 +68,8 @@ print $@ if $@;
 
 #for each tracked user, find the latest id in the database for them
 foreach (@{$friends_list->{users}}) {
-  $tracked{lc $_->{screen_name}} = &latest_from_db(lc $_->{screen_name});
+  #$tracked{lc $_->{screen_name}} = &latest_from_db(lc $_->{screen_name});
+  $tracked{lc $_->{screen_name}} = -1;
 }
 #
 
@@ -115,6 +120,7 @@ my $con = new AnyEvent::IRC::Client;
 
 print "Following: ".join(",", keys %tracked)."\n";
 print "Performing background backfill.\n";
+&backfill;
 
 #commands
 sub cmd_addwatch {
@@ -122,7 +128,8 @@ sub cmd_addwatch {
   say "Adding watched user: $name";
   if (!defined $tracked{$name}) {
     my @response; 
-    $tracked{$name} = &latest_from_db($name); #child has a separate copy of tracked
+    #$tracked{$name} = &latest_from_db($name); #child has a separate copy of tracked
+    $tracked{$name} = -1;
     $nt->create_friend({ screen_name => $name, });
     push @response, &gen_response({ action => "SET_FOLLOWING", following => \%tracked, }, "SYS");
     push @response, &gen_response("$name added.");
@@ -285,7 +292,7 @@ sub latest_from_db {
   if (defined $result) {
     return $result->{id};
   } else {
-    return 0;
+    return -1;
   }
 }
 
@@ -299,22 +306,28 @@ sub sanitize_for_irc {
 
 sub tick_update_posts {
   foreach (keys %tracked) {
+    print "tick_update_posts for $_.\n";
     $update_sth->execute(lc $_);
+    my $max_value;
     while (my $result = $update_sth->fetchrow_hashref) {
-      if ($result->{id} > $tracked{$_}) {
+      if ($result->{id} gt $tracked{$_}) {
+        $max_value = $result->{id};
+
         if (!defined $opt_d) {
           eval {
-            #TODO: move this dumb shit into some helper function that automatically sanitizes
-            #the message and just call that.
             my $tweet = &sanitize_for_irc($result->{text});
             $con->send_srv(PRIVMSG => $bot_settings->{channels}[0], "\x{02}@".$_.":\x{02} $tweet");
-          };
+          } unless ($tracked{$_} eq -1) or $startup; # don't display messages from first backfill.
         }
         warn $@ if $@;
-        $tracked{$_} = $result->{id};
       }
     }
+    $tracked{$_} = $max_value if defined $max_value;
   }
+  $startup = 0;
+  # update child process with latest values from %tracked (else they are wiped).
+  my $work = {msg => "UPDATE", data => \%tracked, };
+  print $CHILD encode_json($work)."\n";
 }
 
 sub tick {
@@ -324,8 +337,6 @@ sub tick {
   }
   &tick_update_posts;
   
-  return if defined $opt_d; #finish up if we're dumb
-
   my $pid = fork();
   if (defined $pid && $pid == 0) {
     exec("./get_new.pm -s $twitter_cfg_file > /dev/null 2>&1 &");
@@ -336,8 +347,6 @@ sub tick {
 }
 
 sub backfill {
-  return if defined $opt_d; #finish up if we're dumb
-
   my $pid = fork();
   if (defined $pid && $pid == 0) {
     exec("./updatedb.pm -s $twitter_cfg_file > /dev/null 2>&1 &");
@@ -366,6 +375,11 @@ sub chandler {
   while (my $msg = <$PARENT>) {
     chomp $msg; my $work = decode_json($msg);
     warn $@ if $@; next if $@;
+    
+    if ($work->{msg} eq "UPDATE") {
+      %tracked = %{$work->{data}};
+      next;
+    }
 
     foreach (keys %commands) {
       if ($work->{msg} =~ /$_/) {
@@ -418,7 +432,7 @@ $con->reg_cb (read => sub {
 
 #poll for updates/refresh data
 print "Requested dumb bot (-d), not polling for updates.\n" if defined $opt_d;
-my $tick_watcher = AnyEvent->timer(after => 30, interval => 180, cb => \&tick);
+my $tick_watcher = AnyEvent->timer(after => 30, interval => 90, cb => \&tick);
 
 #watcher to recieve replies from chandler's processing
 my $w; $w = AnyEvent->io(fh => \*$CHILD, poll => 'r', cb => sub { 
@@ -452,7 +466,7 @@ my $w; $w = AnyEvent->io(fh => \*$CHILD, poll => 'r', cb => sub {
       } elsif ($message->{action} eq "SET_FOLLOWING") {
         %tracked = %{$message->{following}};
         &backfill;
-        &tick_update_posts;
+        #&tick_update_posts;
       }
     }
   }
