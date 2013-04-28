@@ -44,7 +44,7 @@ my $bot_settings = YAML::XS::LoadFile($bot_cfg_file);
 my $dbh = DBI->connect("dbi:SQLite:dbname=twitter.db","","");
 my $default_sth = $dbh->prepare("SELECT text FROM tweets WHERE user=? ORDER BY ID DESC LIMIT 1");
 my $random_sth = $dbh->prepare("SELECT text FROM tweets WHERE user=? ORDER BY RANDOM() LIMIT 1;");
-my $update_sth = $dbh->prepare("SELECT id, text FROM (SELECT id, text FROM tweets WHERE user=? ORDER BY id DESC LIMIT 5) ORDER BY id ASC");
+my $insert_sth = $dbh->prepare("INSERT INTO tweets (id, user, text) VALUES (?,?,?)");
 
 print "Loading twitter OAuth\n";
 
@@ -79,6 +79,12 @@ foreach (@{$friends_list->{users}}) {
 print "Following: ".join(",", keys %tracked)."\n";
 #
 
+my $latest_id = 0;
+my $init_statuses = $nt->home_timeline({ exclude_replies => 1, });
+for my $status (@$init_statuses) {
+  $latest_id = $status->{id} if $status->{id} gt $latest_id;
+}
+print "Latest timeline ID: $latest_id\n";
 
 #fork child to handle commands
 my $pid = fork();
@@ -292,16 +298,6 @@ sub save_settings {
   say "Settings saved.";
 }
 
-sub latest_from_db {
-  my $name = shift;
-  my $result = $dbh->selectrow_hashref($update_sth,undef,lc $name);
-  if (defined $result) {
-    return $result->{id};
-  } else {
-    return -1;
-  }
-}
-
 sub sanitize_for_irc {
   my $text = shift;
   return unless defined $text;
@@ -310,31 +306,17 @@ sub sanitize_for_irc {
   return encode('utf8', $text);
 }
 
-sub tick_update_posts {
-  foreach (keys %tracked) {
-    #print "tick_update_posts for $_.\n";
-    $update_sth->execute(lc $_);
-    my $max_value;
-    while (my $result = $update_sth->fetchrow_hashref) {
-      if ($result->{id} gt $tracked{$_}->{latest}) {
-        $max_value = $result->{id};
-
-        if (!defined $opt_d) {
-          eval {
-            my $tweet = &sanitize_for_irc($result->{text});
-            $con->send_srv(PRIVMSG => $bot_settings->{channels}[0], "\x{02}@".$_.":\x{02} $tweet");
-          } unless ($tracked{$_}->{latest} eq -1) or $tracked{$_}->{new}; # don't display messages from first backfill.
-        }
-        warn $@ if $@;
-      }
+sub get_timeline_new {
+  my $tmp_latest = $latest_id;
+  my $result = $nt->home_timeline({ exclude_replies => 1, });
+  for my $status (@$result) {
+    if ($status->{id} gt $latest_id) {
+      $tmp_latest = $status->{id} if $status->{id} gt $tmp_latest;
+      $con->send_srv(PRIVMSG => $bot_settings->{channels}[0], "\x{02}@".$status->{user}->{screen_name}.":\x{02} $status->{text}");
+      $insert_sth->execute($status->{id},lc $status->{user}->{screen_name}, $status->{text});
     }
-    $tracked{$_}->{latest} = $max_value if defined $max_value;
-    $tracked{$_}->{new} = 0;
   }
-  $startup = 0;
-  # update child process with latest values from %tracked (else they are wiped).
-  my $work = {msg => "UPDATE", data => \%tracked, };
-  print $CHILD encode_json($work)."\n";
+  $latest_id = $tmp_latest;
 }
 
 sub tick {
@@ -342,13 +324,13 @@ sub tick {
   if (not $con->heap->{is_connected}) {
     &connect;
   }
-  &tick_update_posts;
+  &get_timeline_new;
   
-  my $pid = fork();
-  if (defined $pid && $pid == 0) {
-    exec("./get_new.pm -s $twitter_cfg_file > /dev/null 2>&1 &");
-    exit 0;
-  }
+  #my $pid = fork();
+  #if (defined $pid && $pid == 0) {
+  #  exec("./get_new.pm -s $twitter_cfg_file > /dev/null 2>&1 &");
+  #  exit 0;
+  #}
 
   return;
 }
@@ -439,7 +421,7 @@ $con->reg_cb (read => sub {
 
 #poll for updates/refresh data
 print "Requested dumb bot (-d), not polling for updates.\n" if defined $opt_d;
-my $tick_watcher = AnyEvent->timer(after => 30, interval => 90, cb => \&tick);
+my $tick_watcher = AnyEvent->timer(after => 30, interval => 180, cb => \&tick);
 
 #watcher to recieve replies from chandler's processing
 my $w; $w = AnyEvent->io(fh => \*$CHILD, poll => 'r', cb => sub { 
