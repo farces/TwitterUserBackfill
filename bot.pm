@@ -58,8 +58,13 @@ my $nt = Net::Twitter::Lite::WithAPIv1_1->new(
   access_token_secret  => $settings->{access_token_secret},
 );
 
+#display user profile details
+my $user_details = $nt->update_profile();
+print "Logged in as: $user_details->{name} ($user_details->{screen_name})\n";
+#
+
 #this now loads tracked users from twitter's following users list
-print "Loading tracked users... ";
+print "Loading followed users...\n";
 my ($friends_list, %tracked);
 eval {
   $friends_list = $nt->friends_list();
@@ -69,9 +74,11 @@ print $@ if $@;
 #for each tracked user, find the latest id in the database for them
 foreach (@{$friends_list->{users}}) {
   #$tracked{lc $_->{screen_name}} = &latest_from_db(lc $_->{screen_name});
-  $tracked{lc $_->{screen_name}} = -1;
+  $tracked{lc $_->{screen_name}} = { latest => -1, new => 1, };
 }
+print "Following: ".join(",", keys %tracked)."\n";
 #
+
 
 #fork child to handle commands
 my $pid = fork();
@@ -118,7 +125,6 @@ use AnyEvent::IRC::Util qw/prefix_nick/;
 my $c = AnyEvent->condvar;
 my $con = new AnyEvent::IRC::Client;
 
-print "Following: ".join(",", keys %tracked)."\n";
 print "Performing background backfill.\n";
 &backfill;
 
@@ -129,7 +135,7 @@ sub cmd_addwatch {
   if (!defined $tracked{$name}) {
     my @response; 
     #$tracked{$name} = &latest_from_db($name); #child has a separate copy of tracked
-    $tracked{$name} = -1;
+    $tracked{$name} = { latest => -1, new => 1, };
     $nt->create_friend({ screen_name => $name, });
     push @response, &gen_response({ action => "SET_FOLLOWING", following => \%tracked, }, "SYS");
     push @response, &gen_response("$name added.");
@@ -167,7 +173,7 @@ sub cmd_update {
 
   #for each tracked user, find the latest id in the database for them
   foreach (@{$friends_list->{users}}) {
-    $tracked{lc $_->{screen_name}} = &latest_from_db(lc $_->{screen_name});
+    $tracked{lc $_->{screen_name}} = { latest => &latest_from_db(lc $_->{screen_name}), new => 0, };
   }
   return &gen_response({ action => "SET_FOLLOWING", following => \%tracked, }, "SYS");
 }
@@ -306,23 +312,24 @@ sub sanitize_for_irc {
 
 sub tick_update_posts {
   foreach (keys %tracked) {
-    print "tick_update_posts for $_.\n";
+    #print "tick_update_posts for $_.\n";
     $update_sth->execute(lc $_);
     my $max_value;
     while (my $result = $update_sth->fetchrow_hashref) {
-      if ($result->{id} gt $tracked{$_}) {
+      if ($result->{id} gt $tracked{$_}->{latest}) {
         $max_value = $result->{id};
 
         if (!defined $opt_d) {
           eval {
             my $tweet = &sanitize_for_irc($result->{text});
             $con->send_srv(PRIVMSG => $bot_settings->{channels}[0], "\x{02}@".$_.":\x{02} $tweet");
-          } unless ($tracked{$_} eq -1) or $startup; # don't display messages from first backfill.
+          } unless ($tracked{$_}->{latest} eq -1) or $tracked{$_}->{new}; # don't display messages from first backfill.
         }
         warn $@ if $@;
       }
     }
-    $tracked{$_} = $max_value if defined $max_value;
+    $tracked{$_}->{latest} = $max_value if defined $max_value;
+    $tracked{$_}->{new} = 0;
   }
   $startup = 0;
   # update child process with latest values from %tracked (else they are wiped).
