@@ -303,7 +303,8 @@ sub sanitize_for_irc {
   return unless defined $text;
   $text =~ s/\n/ /g;
   $text = HTML::Entities::decode($text);
-  return encode('utf8', $text);
+  $text = encode('utf8', $text) unless utf8::is_utf8($text);
+  return $text
 }
 
 sub get_timeline_new {
@@ -312,7 +313,8 @@ sub get_timeline_new {
   for my $status (@$result) {
     if ($status->{id} gt $latest_id) {
       $tmp_latest = $status->{id} if $status->{id} gt $tmp_latest;
-      $con->send_srv(PRIVMSG => $bot_settings->{channels}[0], "\x{02}@".$status->{user}->{screen_name}.":\x{02} $status->{text}");
+      my $message = &sanitize_for_irc($status->{text});
+      $con->send_srv(PRIVMSG => $bot_settings->{channels}[0], "\x{02}@".$status->{user}->{screen_name}.":\x{02} $message");
       $insert_sth->execute($status->{id},lc $status->{user}->{screen_name}, $status->{text});
     }
   }
@@ -444,6 +446,7 @@ my $w; $w = AnyEvent->io(fh => \*$CHILD, poll => 'r', cb => sub {
     my $op = $_->{op};
     if ($op eq "REP") {
       #REPLY action, payload => msg, target
+      
       $con->send_srv(PRIVMSG => $_->{payload}->{target}, &sanitize_for_irc($_->{payload}->{msg}));
     } elsif ($op eq "SYS") {
       #SYSTEM action, payload => msg => action, [optional]
