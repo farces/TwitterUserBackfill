@@ -122,7 +122,7 @@ if (defined $pid && $pid == 0) {
 close $PARENT;
 undef %aliases; undef %commands;
 
-use Encode qw/encode/;
+use Encode qw/encode decode/;
 use HTML::Entities qw/decode_entities/;
 use AnyEvent;
 use AnyEvent::IRC::Client;
@@ -285,6 +285,7 @@ sub gen_response {
   my $args = shift;
   my $opcode = shift;
   $opcode = "REP" if !defined $opcode;
+  #utf8::encode($args);
   my $result = { op => $opcode, payload => { msg => $args, }, };
   return $result;
 }
@@ -309,17 +310,33 @@ sub sanitize_for_irc {
 
 sub get_timeline_new {
   my $tmp_latest = $latest_id;
-  my $result = $nt->home_timeline({ exclude_replies => 1, });
+  
+  my $result;
+  eval {
+    $result = $nt->home_timeline({ exclude_replies => 1, });
+  };
+
   for my $status (@$result) {
     if ($status->{id} gt $latest_id) {
       $tmp_latest = $status->{id} if $status->{id} gt $tmp_latest;
-      my $message = &sanitize_for_irc($status->{text});
-      $con->send_srv(PRIVMSG => $bot_settings->{channels}[0], "\x{02}@".$status->{user}->{screen_name}.":\x{02} $message");
+      #my $message = &sanitize_for_irc($status->{text});
+      #$con->send_srv(PRIVMSG => $bot_settings->{channels}[0], "\x{02}@".$status->{user}->{screen_name}.":\x{02} $status->{text}");
+      #my $message = encode('utf8', $status->{text});
+      my $message = $status->{text};
+      utf8::encode($message);
+      &send_message($bot_settings->{channels}[0], "\x{02}@".$status->{user}->{screen_name}.":\x{02} $message");
       $insert_sth->execute($status->{id},lc $status->{user}->{screen_name}, $status->{text});
     }
   }
   $latest_id = $tmp_latest;
 }
+
+sub send_message {
+  my $target = shift;
+  my $message = shift;
+  $con->send_srv(PRIVMSG => $target, $message);
+}
+
 
 sub tick {
   #reconnect if the connection is down
@@ -371,7 +388,6 @@ sub chandler {
       %tracked = %{$work->{data}};
       next;
     }
-
     foreach (keys %commands) {
       if ($work->{msg} =~ /$_/) {
         my $run = $commands{$_}->{handler};
@@ -413,6 +429,7 @@ $con->reg_cb (disconnect => sub {
 
 $con->reg_cb (read => sub {
     my ($con, $msg) = @_;
+    $msg->{params}[1] = decode('utf8',$msg->{params}[1]);
     #if message in #, reply in #, else reply to senders nick
     my $target = $con->is_my_nick($msg->{params}[0]) ? prefix_nick($msg) : $msg->{params}[0];
     if ($msg->{command} eq "PRIVMSG") {
@@ -446,8 +463,9 @@ my $w; $w = AnyEvent->io(fh => \*$CHILD, poll => 'r', cb => sub {
     my $op = $_->{op};
     if ($op eq "REP") {
       #REPLY action, payload => msg, target
-      
-      $con->send_srv(PRIVMSG => $_->{payload}->{target}, &sanitize_for_irc($_->{payload}->{msg}));
+      #utf8::decode($_->{payload}->{msg});
+      &send_message($_->{payload}->{target}, $_->{payload}->{msg});   
+      #$con->send_srv(PRIVMSG => $_->{payload}->{target}, &sanitize_for_irc($_->{payload}->{msg}));
     } elsif ($op eq "SYS") {
       #SYSTEM action, payload => msg => action, [optional]
       my $message = $_->{payload}->{msg};
