@@ -319,9 +319,6 @@ sub get_timeline_new {
   for my $status (@$result) {
     if ($status->{id} gt $latest_id) {
       $tmp_latest = $status->{id} if $status->{id} gt $tmp_latest;
-      #my $message = &sanitize_for_irc($status->{text});
-      #$con->send_srv(PRIVMSG => $bot_settings->{channels}[0], "\x{02}@".$status->{user}->{screen_name}.":\x{02} $status->{text}");
-      #my $message = encode('utf8', $status->{text});
       my $message = $status->{text};
       utf8::encode($message);
       &send_message($bot_settings->{channels}[0], "\x{02}@".$status->{user}->{screen_name}.":\x{02} $message");
@@ -345,12 +342,6 @@ sub tick {
   }
   &get_timeline_new;
   
-  #my $pid = fork();
-  #if (defined $pid && $pid == 0) {
-  #  exec("./get_new.pm -s $twitter_cfg_file > /dev/null 2>&1 &");
-  #  exit 0;
-  #}
-
   return;
 }
 
