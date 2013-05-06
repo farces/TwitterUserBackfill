@@ -285,7 +285,6 @@ sub gen_response {
   my $args = shift;
   my $opcode = shift;
   $opcode = "REP" if !defined $opcode;
-  #utf8::encode($args);
   my $result = { op => $opcode, payload => { msg => $args, }, };
   return $result;
 }
@@ -304,7 +303,6 @@ sub sanitize_for_irc {
   return unless defined $text;
   $text =~ s/\n/ /g;
   $text = HTML::Entities::decode($text);
-  $text = encode('utf8', $text) unless utf8::is_utf8($text);
   return $text
 }
 
@@ -320,7 +318,6 @@ sub get_timeline_new {
     if ($status->{id} gt $latest_id) {
       $tmp_latest = $status->{id} if $status->{id} gt $tmp_latest;
       my $message = $status->{text};
-      utf8::encode($message);
       &send_message($bot_settings->{channels}[0], "\x{02}@".$status->{user}->{screen_name}.":\x{02} $message");
       $insert_sth->execute($status->{id},lc $status->{user}->{screen_name}, $status->{text});
     }
@@ -331,7 +328,9 @@ sub get_timeline_new {
 sub send_message {
   my $target = shift;
   my $message = shift;
-  $con->send_srv(PRIVMSG => $target, $message);
+  #WHAT ON EARTH
+  utf8::encode($message) if utf8::is_utf8($message);
+  $con->send_srv(PRIVMSG => $target, &sanitize_for_irc($message));
 }
 
 
@@ -454,7 +453,6 @@ my $w; $w = AnyEvent->io(fh => \*$CHILD, poll => 'r', cb => sub {
     my $op = $_->{op};
     if ($op eq "REP") {
       #REPLY action, payload => msg, target
-      #utf8::decode($_->{payload}->{msg});
       &send_message($_->{payload}->{target}, $_->{payload}->{msg});   
       #$con->send_srv(PRIVMSG => $_->{payload}->{target}, &sanitize_for_irc($_->{payload}->{msg}));
     } elsif ($op eq "SYS") {
