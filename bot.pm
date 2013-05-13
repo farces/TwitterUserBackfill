@@ -277,8 +277,16 @@ sub search_generic {
   my $statuses = eval { $nt->search({q => $name, lang => "en", count => 1,}); };
   warn "get_tweets(); error: $@" if $@;
   return unless defined @{$statuses->{statuses}}[0];
-  my $r = @{$statuses->{statuses}}[0];
+  #my $r = @{$statuses->{statuses}}[0];
+  #$r = $r->{retweeted_status} if $r->{retweeted_status}; # give no fucks about the retweeting user
+  my $r = &find_original(@{$statuses->{statuses}}[0]);
   return "\x{02}@".$r->{user}->{screen_name}."\x{02}: $r->{text} - http://twitter.com/$r->{user}->{screen_name}/status/$r->{id}";
+}
+
+# chooses retweet text if it exists
+sub find_original {
+  my $status = shift;
+  return $status->{retweeted_status} ? $status->{retweeted_status} : $status; 
 }
 
 sub gen_response {
@@ -328,18 +336,19 @@ sub get_timeline_new {
 sub send_message {
   my $target = shift;
   my $message = shift;
-  #WHAT ON EARTH
+  # WHAT ON EARTH
   utf8::encode($message) if utf8::is_utf8($message);
   $con->send_srv(PRIVMSG => $target, &sanitize_for_irc($message));
 }
 
 
 sub tick {
-  #reconnect if the connection is down
+  # reconnect if the connection is down
   if (not $con->heap->{is_connected}) {
     &connect;
   }
-  &get_timeline_new;
+  # don't get any new timeline stuff if we're acting dumb (just responding to commands)
+  &get_timeline_new unless $opt_d;
   
   return;
 }
