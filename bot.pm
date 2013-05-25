@@ -88,28 +88,46 @@ print "Latest timeline ID: $latest_id\n";
 
 #fork child to handle commands
 my $pid = fork();
-my (%commands, %aliases);
+my (%commands, %aliases, @commands_list);
 if (defined $pid && $pid == 0) {
   #this block contains child set-up, including all command-related code and variables
   #to ensure the parent doesn't hold on to any unnecessary data and prevent multiple
   #initialization of net::twitter::lite
   print "Starting command handler\n";
   print "Loading commands\n";
-
+  $commands{'^.help\s*(.*)$'} = { handler => \&cmd_help, };
   $commands{'^#(\w+)$'} = { handler => \&cmd_hashtag, };           # #<hashtag>
   $commands{'^@(\w+)\s+(.*)$'} = { handler  => \&cmd_with_args, };  # @<username> <arguments>
   $commands{'^@(\w+)$' } = { handler => \&cmd_username, };         # @<username>
-  $commands{'^\.search (.+)$'} = { handler => \&cmd_search, };      # .search <terms>
-  $commands{'^\.id (\d+)$' } = { handler => \&cmd_getstatus, };     # .id <id_number>
-  $commands{'^\.trends\s*(.*)$' } = { handler => \&cmd_gettrends, };# .trends <WOEID>
-  $commands{'^\.follow (.+)$' } = { handler => \&cmd_addwatch, }; # .addwatch <username>
-  $commands{'^\.unfollow (.+)$' } = { handler => \&cmd_delwatch, }; # .delwatch <username>
-  $commands{'^\.update$' } = { handler => \&cmd_update, };        # .update
+  $commands{'^\.search (.+)$'} = { handler => \&cmd_search,
+    friendly => ".search",
+    help => ".search <terms> - Search for <terms> in public timelines" };      # .search <terms>
+  $commands{'^\.id (\d+)$' } = { handler => \&cmd_getstatus,
+    friendly => ".id",
+    help => ".id <id> - Display tweet with id <id>" };     # .id <id_number>
+  $commands{'^\.trends\s*(.*)$' } = { handler => \&cmd_gettrends,
+    friendly => ".trends",
+    help => ".trends [woeid] - Display trends for region [woeid], default US" };# .trends <WOEID>
+  $commands{'^\.follow (.+)$' } = { handler => \&cmd_addwatch,
+    friendly => ".follow",
+    help => ".follow <username> - Follow <username>, <username> should not include leading @" }; # .addwatch <username>
+  $commands{'^\.unfollow (.+)$' } = { handler => \&cmd_delwatch, 
+    friendly => ".unfollow",
+    help => ".unfollow <username> - Unfollow <username>, <username> should not include leading @" }; # .delwatch <username>
+  $commands{'^\.update$' } = { handler => \&cmd_update,
+    friendly => ".update",
+    help => ".update - Refresh list of followed users" };        # .update
   $commands{'^\.quit$' } = { 
     handler => sub { return &gen_response({ action => "EXIT" }, "SYS"); }, 
     };  # .quit
-  $commands{'^\.list$' } = { handler => \&cmd_listwatch, };          # .list
+  $commands{'^\.list$' } = { handler => \&cmd_listwatch,
+    friendly => ".list",
+    help => ".list - List currently followed users" };          # .list
   
+  foreach (keys %commands) {
+    push @commands_list, $commands{$_}->{friendly} if defined $commands{$_}->{friendly};
+  }
+
   %aliases = ("sebenza" => "big_ben_clock",);
   
   #start command handler
@@ -182,6 +200,21 @@ sub cmd_update {
     $tracked{lc $_->{screen_name}} = { latest => &latest_from_db(lc $_->{screen_name}), new => 0, };
   }
   return &gen_response({ action => "SET_FOLLOWING", following => \%tracked, }, "SYS");
+}
+
+sub cmd_help {
+  my $which = shift;
+  return &gen_response(join(", ", @commands_list)) unless $which;
+  
+  $which =~ s/^\.//; # strip leading . if provided.
+  foreach (%commands) {
+    next unless defined $commands{$_}->{friendly};
+    if ($commands{$_}->{friendly} eq ".".$which) {
+      return &gen_response($commands{$_}->{help});
+      last;
+    }
+  }
+
 }
 
 sub cmd_username {
