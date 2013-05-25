@@ -204,7 +204,7 @@ sub cmd_update {
 
 sub cmd_help {
   my $which = shift;
-  return &gen_response(join(", ", @commands_list)) unless $which;
+  return &gen_response("Available Commands: ".join(", ", @commands_list)) unless $which;
   
   $which =~ s/^\.//; # strip leading . if provided.
   foreach (%commands) {
