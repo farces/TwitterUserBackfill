@@ -56,6 +56,7 @@ my $nt = Net::Twitter::Lite::WithAPIv1_1->new(
   consumer_secret      => $settings->{consumer_secret},
   access_token         => $settings->{access_token},
   access_token_secret  => $settings->{access_token_secret},
+  ssl                  => 1,
 );
 
 #display user profile details
