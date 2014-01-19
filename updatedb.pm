@@ -8,6 +8,7 @@ use warnings;
 use T_B; #use twitter backfill package
 use YAML::XS qw/LoadFile/;
 use DBI;
+use Getopt::Std qw/getopts/;
 
 my $dbh = DBI->connect("dbi:SQLite:dbname=twitter.db","","");
 
@@ -25,7 +26,11 @@ sub my_sub {
 binmode STDOUT, ":utf8"; #required for STDOUT of some non-english characters
 
 #load twitter config
-my ($settings) = LoadFile('config.yaml');
+our($opt_s);
+getopts('s:');
+
+my $config = defined $opt_s ? $opt_s : "config.yaml";
+my ($settings) = LoadFile($config);
 
 #connect to twitter API
 #requires your own Twitter API keys, freely available from the twitter dev site.
@@ -36,23 +41,28 @@ my $x = T_B->new(
    access_token         => $settings->{access_token},
    access_token_secret  => $settings->{access_token_secret},
    legacy_lists_api     => 0,
+   ssl                  => 1,
 )->connect();
 #
 
 my $query = "SELECT id FROM tweets WHERE user= ? ORDER BY ID DESC LIMIT 1";
 my $sth = $dbh->prepare($query);
 
-for (@{$settings->{users}}) {
-    #say "Requesting Tweets for $_...";
-    my $result=$dbh->selectrow_hashref($sth,undef,lc $_);
+eval {
+  my $friends_list = $x->{twitter_i}->friends_list();
+  foreach (@{$friends_list->{users}}) {
+    print $_->{screen_name}."\n";
+    my $result=$dbh->selectrow_hashref($sth,undef,lc $_->{screen_name});
     if (defined $result) {
-        #say "Existing tweets found, requesting latest since $result->{id}.";
-        $x->recent($_,\&my_sub, $result->{id});
+      #say "Existing tweets found, requesting latest since $result->{id}.";
+      $x->recent(lc $_->{screen_name},\&my_sub, $result->{id});
     } else {
-        #say "No existing tweets found, filling all.";
-        $x->backfill($_, \&my_sub);
+      #say "No existing tweets found, filling all.";
+      $x->backfill(lc $_->{screen_name}, \&my_sub);
     }   
-}
+  }
+};
+
 #cleanup
 $sth->finish;
 $insert_sth->finish;

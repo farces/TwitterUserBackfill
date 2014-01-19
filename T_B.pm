@@ -12,7 +12,7 @@ package T_B;
 use strict;
 use warnings;
 use 5.010;
-use Net::Twitter::Lite qw/new user_timeline/;
+use Net::Twitter::Lite::WithAPIv1_1 qw/new user_timeline/;
 use List::Util qw/min max/;
 use Scalar::Util qw/blessed/;
 
@@ -135,7 +135,7 @@ sub new {
 
 sub connect {
     my $self = shift;
-    $self->{twitter_i} = Net::Twitter::Lite->new(%{$self->{net_twitter_args}});
+    $self->{twitter_i} = Net::Twitter::Lite::WithAPIv1_1->new(%{$self->{net_twitter_args}});
     return $self;
 }
 

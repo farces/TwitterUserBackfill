@@ -16,6 +16,10 @@ socketpair($CHILD, $PARENT, AF_UNIX, SOCK_STREAM, PF_UNSPEC) or die "socketpair 
 $PARENT->autoflush(1);
 $CHILD->autoflush(1);
 
+my $startup = 1; # this gets reset after first tick_update_posts is run
+                 # so that no posts pulled from the startup updatedb
+                 # are posted
+
 $SIG{CHLD} = 'IGNORE';
 
 binmode STDOUT, ":utf8"; 
@@ -40,52 +44,91 @@ my $bot_settings = YAML::XS::LoadFile($bot_cfg_file);
 my $dbh = DBI->connect("dbi:SQLite:dbname=twitter.db","","");
 my $default_sth = $dbh->prepare("SELECT text FROM tweets WHERE user=? ORDER BY ID DESC LIMIT 1");
 my $random_sth = $dbh->prepare("SELECT text FROM tweets WHERE user=? ORDER BY RANDOM() LIMIT 1;");
-my $update_sth = $dbh->prepare("SELECT id, text FROM tweets WHERE user=? ORDER BY ID DESC LIMIT 5");
+my $insert_sth = $dbh->prepare("INSERT INTO tweets (id, user, text) VALUES (?,?,?)");
 
-print "Loading tracked users... ";
-#tracked users hash (contains latest known id)
-my %tracked;
+print "Loading twitter OAuth\n";
 
-foreach (@{$settings->{users}}) {
-  $tracked{$_} = &latest_from_db($_);
+use Net::Twitter::Lite::WithAPIv1_1;
+my $nt = Net::Twitter::Lite::WithAPIv1_1->new(
+  traits              => [qw/OAuth API::REST API::Search RetryOnError/],
+  user_agent_args     => { timeout => 8 }, #required for cases where twitter holds a connection open
+  consumer_key         => $settings->{consumer_key},
+  consumer_secret      => $settings->{consumer_secret},
+  access_token         => $settings->{access_token},
+  access_token_secret  => $settings->{access_token_secret},
+  ssl                  => 1,
+);
+
+#display user profile details
+my $user_details = $nt->update_profile();
+print "Logged in as: $user_details->{name} ($user_details->{screen_name})\n";
+#
+
+#this now loads tracked users from twitter's following users list
+print "Loading followed users...\n";
+my ($friends_list, %tracked);
+eval {
+  $friends_list = $nt->friends_list();
+};
+print $@ if $@;
+
+#for each tracked user, find the latest id in the database for them
+foreach (@{$friends_list->{users}}) {
+  #$tracked{lc $_->{screen_name}} = &latest_from_db(lc $_->{screen_name});
+  $tracked{lc $_->{screen_name}} = { latest => -1, new => 1, };
 }
+print "Following: ".join(",", keys %tracked)."\n";
+#
+
+my $latest_id = 0;
+my $init_statuses = $nt->home_timeline({ exclude_replies => 1, });
+for my $status (@$init_statuses) {
+  $latest_id = $status->{id} if $status->{id} gt $latest_id;
+}
+print "Latest timeline ID: $latest_id\n";
 
 #fork child to handle commands
 my $pid = fork();
-my ($nt, %commands, %aliases);
+my (%commands, %aliases, @commands_list);
 if (defined $pid && $pid == 0) {
   #this block contains child set-up, including all command-related code and variables
   #to ensure the parent doesn't hold on to any unnecessary data and prevent multiple
   #initialization of net::twitter::lite
-  use Net::Twitter::Lite;
   print "Starting command handler\n";
-  print "Loading twitter OAuth\n";
-
-  $nt = Net::Twitter::Lite->new(
-    traits              => [qw/OAuth API::REST API::Search RetryOnError/],
-    user_agent_args     => { timeout => 8 }, #required for cases where twitter holds a connection open
-    consumer_key         => $settings->{consumer_key},
-    consumer_secret      => $settings->{consumer_secret},
-    access_token         => $settings->{access_token},
-    access_token_secret  => $settings->{access_token_secret},
-    legacy_lists_api     => 0,
-  );
-  
   print "Loading commands\n";
-
+  $commands{'^.help\s*(.*)$'} = { handler => \&cmd_help, };
   $commands{'^#(\w+)$'} = { handler => \&cmd_hashtag, };           # #<hashtag>
   $commands{'^@(\w+)\s+(.*)$'} = { handler  => \&cmd_with_args, };  # @<username> <arguments>
   $commands{'^@(\w+)$' } = { handler => \&cmd_username, };         # @<username>
-  $commands{'^\.search (.+)$'} = { handler => \&cmd_search, };      # .search <terms>
-  $commands{'^\.id (\d+)$' } = { handler => \&cmd_getstatus, };     # .id <id_number>
-  $commands{'^\.trends\s*(.*)$' } = { handler => \&cmd_gettrends, };# .trends <WOEID>
-  $commands{'^\.addwatch (.+)$' } = { handler => \&cmd_addwatch, }; # .addwatch <username>
-  $commands{'^\.delwatch (.+)$' } = { handler => \&cmd_delwatch, }; # .delwatch <username>
+  $commands{'^\.search (.+)$'} = { handler => \&cmd_search,
+    friendly => ".search",
+    help => ".search <terms> - Search for <terms> in public timelines" };      # .search <terms>
+  $commands{'^\.id (\d+)$' } = { handler => \&cmd_getstatus,
+    friendly => ".id",
+    help => ".id <id> - Display tweet with id <id>" };     # .id <id_number>
+  $commands{'^\.trends\s*(.*)$' } = { handler => \&cmd_gettrends,
+    friendly => ".trends",
+    help => ".trends [woeid] - Display trends for region [woeid], default US" };# .trends <WOEID>
+  $commands{'^\.follow (.+)$' } = { handler => \&cmd_addwatch,
+    friendly => ".follow",
+    help => ".follow <username> - Follow <username>, <username> should not include leading @" }; # .addwatch <username>
+  $commands{'^\.unfollow (.+)$' } = { handler => \&cmd_delwatch, 
+    friendly => ".unfollow",
+    help => ".unfollow <username> - Unfollow <username>, <username> should not include leading @" }; # .delwatch <username>
+  $commands{'^\.update$' } = { handler => \&cmd_update,
+    friendly => ".update",
+    help => ".update - Refresh list of followed users" };        # .update
   $commands{'^\.quit$' } = { 
     handler => sub { return &gen_response({ action => "EXIT" }, "SYS"); }, 
     };  # .quit
-  $commands{'^\.list$' } = { handler => \&cmd_listwatch, };          # .list
+  $commands{'^\.list$' } = { handler => \&cmd_listwatch,
+    friendly => ".list",
+    help => ".list - List currently followed users" };          # .list
   
+  foreach (keys %commands) {
+    push @commands_list, $commands{$_}->{friendly} if defined $commands{$_}->{friendly};
+  }
+
   %aliases = ("sebenza" => "big_ben_clock",);
   
   #start command handler
@@ -96,9 +139,9 @@ if (defined $pid && $pid == 0) {
 
 #parent only from now on
 close $PARENT;
-undef $nt; undef %aliases; undef %commands;
+undef %aliases; undef %commands;
 
-use Encode qw/encode/;
+use Encode qw/encode decode/;
 use HTML::Entities qw/decode_entities/;
 use AnyEvent;
 use AnyEvent::IRC::Client;
@@ -107,7 +150,8 @@ use AnyEvent::IRC::Util qw/prefix_nick/;
 my $c = AnyEvent->condvar;
 my $con = new AnyEvent::IRC::Client;
 
-print join(",", keys %tracked)."\n";
+print "Performing background backfill.\n";
+&backfill;
 
 #commands
 sub cmd_addwatch {
@@ -115,8 +159,10 @@ sub cmd_addwatch {
   say "Adding watched user: $name";
   if (!defined $tracked{$name}) {
     my @response; 
-    $tracked{$name} = &latest_from_db($name); #child has a separate copy of tracked
-    push @response, &gen_response({ action => "ADD_WATCH", name => $name, }, "SYS");
+    #$tracked{$name} = &latest_from_db($name); #child has a separate copy of tracked
+    $tracked{$name} = { latest => -1, new => 1, };
+    $nt->create_friend({ screen_name => $name, });
+    push @response, &gen_response({ action => "SET_FOLLOWING", following => \%tracked, }, "SYS");
     push @response, &gen_response("$name added.");
     return @response;
   }
@@ -129,9 +175,11 @@ sub cmd_delwatch {
   if (!defined $tracked{$name}) {
     return &gen_response("Not currently following $name");
   }
+  
   delete $tracked{$name};
+  $nt->unfollow({ screen_name => $name, });
   my @response;
-  push @response, &gen_response({ action => "DEL_WATCH", name => $name, }, "SYS");
+  push @response, &gen_response({ action => "SET_FOLLOWING", following => \%tracked, }, "SYS");
   push @response, &gen_response("$name removed.");
   return @response;
 }
@@ -139,6 +187,35 @@ sub cmd_delwatch {
 sub cmd_listwatch {
   say "Listing followed users.";
   return &gen_response("Currently following: ".join(", ", keys %tracked));
+}
+
+sub cmd_update {
+  my $friends_list;
+  eval {
+    $friends_list = $nt->friends_list();
+  };
+  print $@ if $@;
+
+  #for each tracked user, find the latest id in the database for them
+  foreach (@{$friends_list->{users}}) {
+    $tracked{lc $_->{screen_name}} = { latest => &latest_from_db(lc $_->{screen_name}), new => 0, };
+  }
+  return &gen_response({ action => "SET_FOLLOWING", following => \%tracked, }, "SYS");
+}
+
+sub cmd_help {
+  my $which = shift;
+  return &gen_response("Available Commands: ".join(", ", @commands_list)) unless $which;
+  
+  $which =~ s/^\.//; # strip leading . if provided.
+  foreach (%commands) {
+    next unless defined $commands{$_}->{friendly};
+    if ($commands{$_}->{friendly} eq ".".$which) {
+      return &gen_response($commands{$_}->{help});
+      last;
+    }
+  }
+
 }
 
 sub cmd_username {
@@ -180,7 +257,7 @@ sub cmd_gettrends {
   my $woeid = shift;
   $woeid = "23424977" if not $woeid;
   say "Getting trends for WOEID: $woeid";
-  my $trends = eval { $nt->trends_location($woeid); };
+  my $trends = eval { $nt->trends($woeid); };
   warn "cmd_gettrends() error: $@" if $@; 
   return unless defined $trends;
   my @names;
@@ -231,12 +308,19 @@ sub search_username {
 
 sub search_generic {
   my $name = shift;
-
   my $statuses = eval { $nt->search({q => $name, lang => "en", count => 1,}); };
   warn "get_tweets(); error: $@" if $@;
-  return unless defined $statuses->{results}[0];
-  my $r = $statuses->{results}[0];
-  return "\x{02}@".$r->{from_user}."\x{02}: $r->{text} - http://twitter.com/$r->{from_user}/status/$r->{id}";
+  return unless defined @{$statuses->{statuses}}[0];
+  #my $r = @{$statuses->{statuses}}[0];
+  #$r = $r->{retweeted_status} if $r->{retweeted_status}; # give no fucks about the retweeting user
+  my $r = &find_original(@{$statuses->{statuses}}[0]);
+  return "\x{02}@".$r->{user}->{screen_name}."\x{02}: $r->{text} - http://twitter.com/$r->{user}->{screen_name}/status/$r->{id}";
+}
+
+# chooses retweet text if it exists
+sub find_original {
+  my $status = shift;
+  return $status->{retweeted_status} ? $status->{retweeted_status} : $status; 
 }
 
 sub gen_response {
@@ -256,62 +340,62 @@ sub save_settings {
   say "Settings saved.";
 }
 
-sub latest_from_db {
-  my $name = shift;
-  my $result = $dbh->selectrow_hashref($update_sth,undef,lc $name);
-  if (defined $result) {
-    return $result->{id};
-  } else {
-    return 0;
-  }
-}
-
 sub sanitize_for_irc {
   my $text = shift;
   return unless defined $text;
   $text =~ s/\n/ /g;
   $text = HTML::Entities::decode($text);
-  return encode('utf8', $text);
+  return $text
 }
 
-sub tick_update_posts {
-  foreach (keys %tracked) {
-    $update_sth->execute(lc $_);
-    while (my $result = $update_sth->fetchrow_hashref) {
-      if ($result->{id} > $tracked{$_}) {
-        if (!defined $opt_d) {
-          eval {
-            #TODO: move this dumb shit into some helper function that automatically sanitizes
-            #the message and just call that.
-            my $tweet = &sanitize_for_irc($result->{text});
-            $con->send_srv(PRIVMSG => $bot_settings->{channels}[0], "\x{02}@".$_.":\x{02} $tweet");
-          };
-        }
-        warn $@ if $@;
-        $tracked{$_} = $result->{id};
-      }
+sub get_timeline_new {
+  my $tmp_latest = $latest_id;
+  
+  my $result;
+  eval {
+    $result = $nt->home_timeline({ exclude_replies => 1, });
+  };
+
+  for my $status (@$result) {
+    if ($status->{id} gt $latest_id) {
+      $tmp_latest = $status->{id} if $status->{id} gt $tmp_latest;
+      my $message = $status->{text};
+      &send_message($bot_settings->{channels}[0], "\x{02}@".$status->{user}->{screen_name}.":\x{02} $message");
+      $insert_sth->execute($status->{id},lc $status->{user}->{screen_name}, $status->{text});
     }
   }
+  $latest_id = $tmp_latest;
 }
 
+sub send_message {
+  my $target = shift;
+  my $message = shift;
+  # WHAT ON EARTH
+  utf8::encode($message) if utf8::is_utf8($message);
+  $con->send_srv(PRIVMSG => $target, &sanitize_for_irc($message));
+}
+
+
 sub tick {
-  #reconnect if the connection is down
+  # reconnect if the connection is down
   if (not $con->heap->{is_connected}) {
     &connect;
   }
-  &tick_update_posts;
+  # don't get any new timeline stuff if we're acting dumb (just responding to commands)
+  &get_timeline_new unless $opt_d;
   
-  return if defined $opt_d; #finish up if we're dumb
-
-  my $pid = fork();
-  if (defined $pid && $pid == 0) {
-    # child
-    exec("./updatedb.pm > /dev/null 2>&1 &");
-    exit 0;
-  }
-
   return;
 }
+
+sub backfill {
+  my $pid = fork();
+  if (defined $pid && $pid == 0) {
+    exec("./updatedb.pm -s $twitter_cfg_file > /dev/null 2>&1 &");
+    exit 0;
+  }
+  return;
+}
+
 
 sub connect {
   $con->enable_ssl if $bot_settings->{ssl};
@@ -325,13 +409,18 @@ sub connect {
   }
 }
 
+
 sub chandler {
   print "Chandler loaded\n";
   close $CHILD;
   while (my $msg = <$PARENT>) {
     chomp $msg; my $work = decode_json($msg);
     warn $@ if $@; next if $@;
-
+    
+    if ($work->{msg} eq "UPDATE") {
+      %tracked = %{$work->{data}};
+      next;
+    }
     foreach (keys %commands) {
       if ($work->{msg} =~ /$_/) {
         my $run = $commands{$_}->{handler};
@@ -373,6 +462,7 @@ $con->reg_cb (disconnect => sub {
 
 $con->reg_cb (read => sub {
     my ($con, $msg) = @_;
+    $msg->{params}[1] = decode('utf8',$msg->{params}[1]);
     #if message in #, reply in #, else reply to senders nick
     my $target = $con->is_my_nick($msg->{params}[0]) ? prefix_nick($msg) : $msg->{params}[0];
     if ($msg->{command} eq "PRIVMSG") {
@@ -406,7 +496,8 @@ my $w; $w = AnyEvent->io(fh => \*$CHILD, poll => 'r', cb => sub {
     my $op = $_->{op};
     if ($op eq "REP") {
       #REPLY action, payload => msg, target
-      $con->send_srv(PRIVMSG => $_->{payload}->{target}, &sanitize_for_irc($_->{payload}->{msg}));
+      &send_message($_->{payload}->{target}, $_->{payload}->{msg});   
+      #$con->send_srv(PRIVMSG => $_->{payload}->{target}, &sanitize_for_irc($_->{payload}->{msg}));
     } elsif ($op eq "SYS") {
       #SYSTEM action, payload => msg => action, [optional]
       my $message = $_->{payload}->{msg};
@@ -414,19 +505,10 @@ my $w; $w = AnyEvent->io(fh => \*$CHILD, poll => 'r', cb => sub {
         #SYS:EXIT msg => name
         undef $w;
         $c->broadcast;
-      } elsif ($message->{action} eq "ADD_WATCH") {
-        #SYS:Add new watched user: msg => name
-        push @{$settings->{users}}, $message->{name};
-        $tracked{$message->{name}} = &latest_from_db($message->{name});
-        &save_settings;
-        &tick_update_posts;
-      } elsif ($message->{action} eq "DEL_WATCH") {
-        #SYS:Remove watched user: msg => name
-        delete $tracked{$message->{name}};
-        my $index = 0;
-        $index++ until $settings->{users}[$index] eq $message->{name};
-        splice(@{$settings->{users}},$index,1);
-        &save_settings;
+      } elsif ($message->{action} eq "SET_FOLLOWING") {
+        %tracked = %{$message->{following}};
+        &backfill;
+        #&tick_update_posts;
       }
     }
   }
