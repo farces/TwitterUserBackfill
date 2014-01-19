@@ -36,7 +36,6 @@ my $x = T_B->new(
    access_token         => $settings->{access_token},
    access_token_secret  => $settings->{access_token_secret},
    legacy_lists_api     => 0,
-   ssl                  => 1,
 )->connect();
 #
 
