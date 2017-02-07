@@ -22,7 +22,7 @@ my $startup = 1; # this gets reset after first tick_update_posts is run
 
 $SIG{CHLD} = 'IGNORE';
 
-binmode STDOUT, ":utf8"; 
+binmode STDOUT, ":utf8";
 
 #-d dumb mode (no update polling)
 #-s <name> custom bot config
@@ -31,8 +31,8 @@ getopts('ds:');
 
 #settings - bot.yaml for irc-related, config.yaml for twitter.
 my $bot_cfg_file = defined $opt_s ? "bot.$opt_s.yaml" : "bot.yaml";
-my $twitter_cfg_file = !defined $opt_s        ? "config.yaml" : 
-                      -e "config.$opt_s.yaml" ? "config.$opt_s.yaml" : 
+my $twitter_cfg_file = !defined $opt_s        ? "config.yaml" :
+                      -e "config.$opt_s.yaml" ? "config.$opt_s.yaml" :
                                                 "config.yaml";
 
 print "Using twitter config from $twitter_cfg_file\n";
@@ -51,7 +51,7 @@ print "Loading twitter OAuth\n";
 use Net::Twitter::Lite::WithAPIv1_1;
 my $nt = Net::Twitter::Lite::WithAPIv1_1->new(
   traits              => [qw/OAuth API::REST API::Search RetryOnError/],
-  user_agent_args     => { timeout => 8 }, #required for cases where twitter holds a connection open
+  user_agent_args     => { timeout => 8, }, #required for cases where twitter holds a connection open
   consumer_key         => $settings->{consumer_key},
   consumer_secret      => $settings->{consumer_secret},
   access_token         => $settings->{access_token},
@@ -112,25 +112,26 @@ if (defined $pid && $pid == 0) {
   $commands{'^\.follow (.+)$' } = { handler => \&cmd_addwatch,
     friendly => ".follow",
     help => ".follow <username> - Follow <username>, <username> should not include leading @" }; # .addwatch <username>
-  $commands{'^\.unfollow (.+)$' } = { handler => \&cmd_delwatch, 
+  $commands{'^\.unfollow (.+)$' } = { handler => \&cmd_delwatch,
     friendly => ".unfollow",
     help => ".unfollow <username> - Unfollow <username>, <username> should not include leading @" }; # .delwatch <username>
   $commands{'^\.update$' } = { handler => \&cmd_update,
     friendly => ".update",
     help => ".update - Refresh list of followed users" };        # .update
-  $commands{'^\.quit$' } = { 
-    handler => sub { return &gen_response({ action => "EXIT" }, "SYS"); }, 
+  $commands{'^\.quit$' } = {
+    handler => sub { return &gen_response({ action => "EXIT" }, "SYS"); },
     };  # .quit
   $commands{'^\.list$' } = { handler => \&cmd_listwatch,
     friendly => ".list",
     help => ".list - List currently followed users" };          # .list
-  
+  $commands{'^https:\/\/twitter.com\/\w+\/status\/(\d+)$' } = { handler => \&cmd_getstatus,
+    friendly => "Full https://twitter.com/user/status/123456 URL - show tweet", };
   foreach (keys %commands) {
     push @commands_list, $commands{$_}->{friendly} if defined $commands{$_}->{friendly};
   }
 
   %aliases = ("sebenza" => "big_ben_clock",);
-  
+
   #start command handler
   &chandler;
   print "Chandler exited\n";
@@ -158,7 +159,7 @@ sub cmd_addwatch {
   my $name = shift;
   say "Adding watched user: $name";
   if (!defined $tracked{$name}) {
-    my @response; 
+    my @response;
     #$tracked{$name} = &latest_from_db($name); #child has a separate copy of tracked
     $tracked{$name} = { latest => -1, new => 1, };
     $nt->create_friend({ screen_name => $name, });
@@ -175,7 +176,7 @@ sub cmd_delwatch {
   if (!defined $tracked{$name}) {
     return &gen_response("Not currently following $name");
   }
-  
+
   delete $tracked{$name};
   $nt->unfollow({ screen_name => $name, });
   my @response;
@@ -198,15 +199,15 @@ sub cmd_update {
 
   #for each tracked user, find the latest id in the database for them
   foreach (@{$friends_list->{users}}) {
-    $tracked{lc $_->{screen_name}} = { latest => &latest_from_db(lc $_->{screen_name}), new => 0, };
+    $tracked{lc $_->{screen_name}} = { latest => -1, new => 1, };
   }
   return &gen_response({ action => "SET_FOLLOWING", following => \%tracked, }, "SYS");
 }
 
 sub cmd_help {
   my $which = shift;
-  return &gen_response("Available Commands: ".join(", ", @commands_list)) unless $which;
-  
+  return &gen_response(join(", ", @commands_list)) unless $which;
+
   $which =~ s/^\.//; # strip leading . if provided.
   foreach (%commands) {
     next unless defined $commands{$_}->{friendly};
@@ -234,7 +235,7 @@ sub cmd_username {
 
 sub cmd_with_args {
   my ($name, $args) = @_;
-  if (grep {$_ eq $name} keys %tracked) { 
+  if (grep {$_ eq $name} keys %tracked) {
     if ($args eq "latest") {
       my $result = $dbh->selectrow_hashref($default_sth,undef, lc $name);
       return &gen_response($result->{text});
@@ -258,7 +259,7 @@ sub cmd_gettrends {
   $woeid = "23424977" if not $woeid;
   say "Getting trends for WOEID: $woeid";
   my $trends = eval { $nt->trends($woeid); };
-  warn "cmd_gettrends() error: $@" if $@; 
+  warn "cmd_gettrends() error: $@" if $@;
   return unless defined $trends;
   my @names;
   for (@{@{$trends}[0]->{trends}}) {
@@ -274,7 +275,7 @@ sub cmd_search {
   return &gen_response($result) if defined $result;
 }
 
-sub cmd_getstatus { 
+sub cmd_getstatus {
   my $id = shift;
   say "Getting status: $id";
   my $result = &get_status($id);
@@ -288,11 +289,11 @@ sub cmd_getstatus {
 #these should return nothing if no result was found
 sub get_status {
   my $id = shift;
-  my $status = eval { $nt->show_status({ id => $id, }); };
+  my $status = eval { $nt->show_status({ id => $id, tweet_mode => 'extended', }); };
   #throws an error if no status is retrieved
   #warn "get_status() error: $@" if $@;
   return unless defined $status;
-  return "\x{02}@".$status->{user}->{screen_name}.":\x{02} ".$status->{text};
+  return "\x{02}@".$status->{user}->{screen_name}.":\x{02} ".$status->{full_text} || $status->{text};
 }
 
 sub search_username {
@@ -301,26 +302,24 @@ sub search_username {
     $name = $aliases{$name};
   }
 
-  my $statuses = eval { $nt->user_timeline({ id => "$name", count => 1, }); }; 
+  my $statuses = eval { $nt->user_timeline({ id => "$name", count => 1, tweet_mode => 'extended', }); };
   warn "search_username(); error: $@" if $@;
-  return @$statuses[0]->{text} if defined @$statuses;
+  return @$statuses[0]->{full_text} || @$statuses[0]->{text} if @$statuses;
 }
 
 sub search_generic {
   my $name = shift;
-  my $statuses = eval { $nt->search({q => $name, lang => "en", count => 1,}); };
+  my $statuses = eval { $nt->search({q => $name, lang => "en", count => 1, tweet_mode => 'extended', }); };
   warn "get_tweets(); error: $@" if $@;
   return unless defined @{$statuses->{statuses}}[0];
-  #my $r = @{$statuses->{statuses}}[0];
-  #$r = $r->{retweeted_status} if $r->{retweeted_status}; # give no fucks about the retweeting user
   my $r = &find_original(@{$statuses->{statuses}}[0]);
-  return "\x{02}@".$r->{user}->{screen_name}."\x{02}: $r->{text} - http://twitter.com/$r->{user}->{screen_name}/status/$r->{id}";
+  return "\x{02}@".$r->{user}->{screen_name}."\x{02}: $r->{full_text}||$r->{text} - http://twitter.com/$r->{user}->{screen_name}/status/$r->{id}";
 }
 
 # chooses retweet text if it exists
 sub find_original {
   my $status = shift;
-  return $status->{retweeted_status} ? $status->{retweeted_status} : $status; 
+  return $status->{retweeted_status} ? $status->{retweeted_status} : $status;
 }
 
 sub gen_response {
@@ -350,10 +349,10 @@ sub sanitize_for_irc {
 
 sub get_timeline_new {
   my $tmp_latest = $latest_id;
-  
+
   my $result;
   eval {
-    $result = $nt->home_timeline({ exclude_replies => 1, });
+    $result = $nt->home_timeline({ exclude_replies => 1, tweet_mode => "extended" });
   };
 
   for my $status (@$result) {
@@ -361,7 +360,7 @@ sub get_timeline_new {
       $tmp_latest = $status->{id} if $status->{id} gt $tmp_latest;
       my $message = $status->{text};
       &send_message($bot_settings->{channels}[0], "\x{02}@".$status->{user}->{screen_name}.":\x{02} $message");
-      $insert_sth->execute($status->{id},lc $status->{user}->{screen_name}, $status->{text});
+      $insert_sth->execute($status->{id},lc $status->{user}->{screen_name}, $status->{full_text}||$status->{text});
     }
   }
   $latest_id = $tmp_latest;
@@ -383,7 +382,7 @@ sub tick {
   }
   # don't get any new timeline stuff if we're acting dumb (just responding to commands)
   &get_timeline_new unless $opt_d;
-  
+
   return;
 }
 
@@ -399,10 +398,10 @@ sub backfill {
 
 sub connect {
   $con->enable_ssl if $bot_settings->{ssl};
-  $con->connect($bot_settings->{server},$bot_settings->{port}, 
-    { nick => $bot_settings->{nick}, 
-      user => $bot_settings->{username}, 
-      password => $bot_settings->{password}, 
+  $con->connect($bot_settings->{server},$bot_settings->{port},
+    { nick => $bot_settings->{nick},
+      user => $bot_settings->{username},
+      password => $bot_settings->{password},
     });
   foreach (@{$bot_settings->{channels}}) {
     $con->send_srv (JOIN => $_);
@@ -416,7 +415,7 @@ sub chandler {
   while (my $msg = <$PARENT>) {
     chomp $msg; my $work = decode_json($msg);
     warn $@ if $@; next if $@;
-    
+
     if ($work->{msg} eq "UPDATE") {
       %tracked = %{$work->{data}};
       next;
@@ -426,7 +425,7 @@ sub chandler {
         my $run = $commands{$_}->{handler};
         #run command, with regexp matches $1 and $2 if defined (allows bare .command handling).
         my @result = $run->(defined $1 ? lc $1 : undef , defined $2 ? lc $2 : undef);
-        
+
         my @final;
         foreach (@result) {
           #if item is not a ref, we've gotten an empty response from $run
@@ -442,7 +441,7 @@ sub chandler {
   } continue { undef $@; }
 }
 
-$con->reg_cb (connect => sub { 
+$con->reg_cb (connect => sub {
     my ($con, $err) = @_;
     if (not $err) {
       $con->heap->{is_connected} = 1;
@@ -452,12 +451,12 @@ $con->reg_cb (connect => sub {
     }
   });
 
-$con->reg_cb (registered => sub { 
-    $con->send_raw ("TITLE bot_snakebro 09de92891c08c2810e0c7ac5e53ad9b8") 
+$con->reg_cb (registered => sub {
+    $con->send_raw ("TITLE bot_snakebro 09de92891c08c2810e0c7ac5e53ad9b8")
   });
-$con->reg_cb (disconnect => sub { 
-    $con->heap->{is_connected} = 0; 
-    warn "Disconnected. Attempting reconnect at next tick" 
+$con->reg_cb (disconnect => sub {
+    $con->heap->{is_connected} = 0;
+    warn "Disconnected. Attempting reconnect at next tick"
   });
 
 $con->reg_cb (read => sub {
@@ -476,7 +475,7 @@ print "Requested dumb bot (-d), not polling for updates.\n" if defined $opt_d;
 my $tick_watcher = AnyEvent->timer(after => 30, interval => 180, cb => \&tick);
 
 #watcher to recieve replies from chandler's processing
-my $w; $w = AnyEvent->io(fh => \*$CHILD, poll => 'r', cb => sub { 
+my $w; $w = AnyEvent->io(fh => \*$CHILD, poll => 'r', cb => sub {
   my $msg = <$CHILD>;
 
   #deal with erroneus <$CHILD> read events by just killing the bot
@@ -491,12 +490,12 @@ my $w; $w = AnyEvent->io(fh => \*$CHILD, poll => 'r', cb => sub {
   my $data = decode_json($msg);
   warn $@ if $@;
   return if $@;
-  
+
   foreach (@$data) {
     my $op = $_->{op};
     if ($op eq "REP") {
       #REPLY action, payload => msg, target
-      &send_message($_->{payload}->{target}, $_->{payload}->{msg});   
+      &send_message($_->{payload}->{target}, $_->{payload}->{msg});
       #$con->send_srv(PRIVMSG => $_->{payload}->{target}, &sanitize_for_irc($_->{payload}->{msg}));
     } elsif ($op eq "SYS") {
       #SYSTEM action, payload => msg => action, [optional]
