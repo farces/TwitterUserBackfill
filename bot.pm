@@ -313,7 +313,7 @@ sub search_generic {
   warn "get_tweets(); error: $@" if $@;
   return unless defined @{$statuses->{statuses}}[0];
   my $r = &find_original(@{$statuses->{statuses}}[0]);
-  return "\x{02}@".$r->{user}->{screen_name}."\x{02}: $r->{full_text}||$r->{text} - http://twitter.com/$r->{user}->{screen_name}/status/$r->{id}";
+  return "\x{02}@".$r->{user}->{screen_name}."\x{02}: ".($r->{full_text}||$r->{text})." - http://twitter.com/$r->{user}->{screen_name}/status/$r->{id}";
 }
 
 # chooses retweet text if it exists
@@ -358,7 +358,7 @@ sub get_timeline_new {
   for my $status (@$result) {
     if ($status->{id} gt $latest_id) {
       $tmp_latest = $status->{id} if $status->{id} gt $tmp_latest;
-      my $message = $status->{text};
+      my $message = $status->{full_text} || $status->{text};
       &send_message($bot_settings->{channels}[0], "\x{02}@".$status->{user}->{screen_name}.":\x{02} $message");
       $insert_sth->execute($status->{id},lc $status->{user}->{screen_name}, $status->{full_text}||$status->{text});
     }

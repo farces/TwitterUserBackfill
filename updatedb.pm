@@ -1,4 +1,4 @@
-#!/usr/bin/perl
+#!/usr/bin/env perl
 #Script that can be directly called to update tweets from users specified in config.yaml, backfilling
 #any users that haven't had any tweets collected yet. 
 
@@ -19,7 +19,7 @@ my $insert_sth = $dbh->prepare($insert_query);
 #example callback that prints the id and text values, and stores data to an sqlite database.
 sub my_sub {
     my $status = shift;
-    $insert_sth->execute($status->{id},lc $status->{user}->{screen_name}, $status->{text});
+    $insert_sth->execute($status->{id},lc $status->{user}->{screen_name}, $status->{full_text}||$status->{text});
     #say $status->{id} . " - " . $status->{text};
 }
 
