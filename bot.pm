@@ -388,7 +388,7 @@ sub tick {
 
 sub backfill {
   my $pid = fork();
-  if ($pid && $pid == 0) {
+  if (defined $pid && $pid == 0) {
     exec("./updatedb.pm -s $twitter_cfg_file > /dev/null 2>&1 &");
     exit 0;
   }
