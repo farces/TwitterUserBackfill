@@ -1,4 +1,4 @@
-#!/usr/bin/perl
+#!/usr/bin/env perl
 #Script that can be directly called to update tweets from users specified in config.yaml, backfilling
 #any users that haven't had any tweets collected yet. 
 
