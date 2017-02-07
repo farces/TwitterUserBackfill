@@ -65,7 +65,7 @@ sub backfill {
     
     say "Get $name" if $self->{debug};
     
-    $statuses = $self->_twitter_timeline({id => "$name", count => $self->{posts_per_request}, });
+    $statuses = $self->_twitter_timeline({id => "$name", count => $self->{posts_per_request}, tweet_mode => 'extended', });
     my ($min,$max) = $self->_process($statuses,$func);
 
     if (not defined $min) {
@@ -83,6 +83,7 @@ sub backfill {
             id => "$name", 
             count => $self->{posts_per_request}, 
             max_id => $min,
+            tweet_mode => 'extended',
         });
         last unless $statuses;
 
