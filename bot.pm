@@ -30,8 +30,8 @@ our($opt_d,$opt_s);
 getopts('ds:');
 
 #settings - bot.yaml for irc-related, config.yaml for twitter.
-my $bot_cfg_file = defined $opt_s ? "bot.$opt_s.yaml" : "bot.yaml";
-my $twitter_cfg_file = !defined $opt_s        ? "config.yaml" :
+my $bot_cfg_file = $opt_s ? "bot.$opt_s.yaml" : "bot.yaml";
+my $twitter_cfg_file = !$opt_s        ? "config.yaml" :
                       -e "config.$opt_s.yaml" ? "config.$opt_s.yaml" :
                                                 "config.yaml";
 
@@ -90,7 +90,7 @@ print "Latest timeline ID: $latest_id\n";
 #fork child to handle commands
 my $pid = fork();
 my (%commands, %aliases, @commands_list);
-if (defined $pid && $pid == 0) {
+if ($pid && $pid == 0) {
   #this block contains child set-up, including all command-related code and variables
   #to ensure the parent doesn't hold on to any unnecessary data and prevent multiple
   #initialization of net::twitter::lite
@@ -127,7 +127,7 @@ if (defined $pid && $pid == 0) {
   $commands{'^https:\/\/twitter.com\/\w+\/status\/(\d+)$' } = { handler => \&cmd_getstatus,
     friendly => "Full https://twitter.com/user/status/123456 URL - show tweet", };
   foreach (keys %commands) {
-    push @commands_list, $commands{$_}->{friendly} if defined $commands{$_}->{friendly};
+    push @commands_list, $commands{$_}->{friendly} if $commands{$_}->{friendly};
   }
 
   %aliases = ("sebenza" => "big_ben_clock",);
@@ -158,7 +158,7 @@ print "Performing background backfill.\n";
 sub cmd_addwatch {
   my $name = shift;
   say "Adding watched user: $name";
-  if (!defined $tracked{$name}) {
+  if (!$tracked{$name}) {
     my @response;
     #$tracked{$name} = &latest_from_db($name); #child has a separate copy of tracked
     $tracked{$name} = { latest => -1, new => 1, };
@@ -173,7 +173,7 @@ sub cmd_addwatch {
 sub cmd_delwatch {
   my $name = shift;
   say "Removing watched user: $name";
-  if (!defined $tracked{$name}) {
+  if (!$tracked{$name}) {
     return &gen_response("Not currently following $name");
   }
 
@@ -210,7 +210,7 @@ sub cmd_help {
 
   $which =~ s/^\.//; # strip leading . if provided.
   foreach (%commands) {
-    next unless defined $commands{$_}->{friendly};
+    next unless $commands{$_}->{friendly};
     if ($commands{$_}->{friendly} eq ".".$which) {
       return &gen_response($commands{$_}->{help});
       last;
@@ -225,10 +225,10 @@ sub cmd_username {
   #if username is one that is listed in the config, pull an entry from the db
   if (grep {$_ eq $name} keys %tracked) {
     my $result = $dbh->selectrow_hashref($random_sth,undef,lc $name);
-    return &gen_response($result->{text}) if defined $result;
+    return &gen_response($result->{text}) if $result;
   } else {
     my $result = &search_username($name);
-    return &gen_response($result) if defined $result;
+    return &gen_response($result) if $result;
   }
   return;
 }
@@ -251,7 +251,7 @@ sub cmd_hashtag {
   my $hashtag = shift;
   say "Searching: #$hashtag";
   my $result = &search_generic("#".$hashtag);
-  return &gen_response($result) if defined $result;
+  return &gen_response($result) if $result;
 }
 
 sub cmd_gettrends {
@@ -260,7 +260,7 @@ sub cmd_gettrends {
   say "Getting trends for WOEID: $woeid";
   my $trends = eval { $nt->trends($woeid); };
   warn "cmd_gettrends() error: $@" if $@;
-  return unless defined $trends;
+  return unless $trends;
   my @names;
   for (@{@{$trends}[0]->{trends}}) {
     push @names, $_->{name};
@@ -272,14 +272,14 @@ sub cmd_search {
   my $query = shift;
   say "Searching: $query";
   my $result = &search_generic($query);
-  return &gen_response($result) if defined $result;
+  return &gen_response($result) if $result;
 }
 
 sub cmd_getstatus {
   my $id = shift;
   say "Getting status: $id";
   my $result = &get_status($id);
-  return &gen_response($result) if defined $result;
+  return &gen_response($result) if $result;
 }
 #
 
@@ -292,7 +292,7 @@ sub get_status {
   my $status = eval { $nt->show_status({ id => $id, tweet_mode => 'extended', }); };
   #throws an error if no status is retrieved
   #warn "get_status() error: $@" if $@;
-  return unless defined $status;
+  return unless $status;
   return "\x{02}@".$status->{user}->{screen_name}.":\x{02} ".$status->{full_text} || $status->{text};
 }
 
@@ -311,7 +311,7 @@ sub search_generic {
   my $name = shift;
   my $statuses = eval { $nt->search({q => $name, lang => "en", count => 1, tweet_mode => 'extended', }); };
   warn "get_tweets(); error: $@" if $@;
-  return unless defined @{$statuses->{statuses}}[0];
+  return unless @{$statuses->{statuses}}[0];
   my $r = &find_original(@{$statuses->{statuses}}[0]);
   return "\x{02}@".$r->{user}->{screen_name}."\x{02}: $r->{full_text}||$r->{text} - http://twitter.com/$r->{user}->{screen_name}/status/$r->{id}";
 }
@@ -325,7 +325,7 @@ sub find_original {
 sub gen_response {
   my $args = shift;
   my $opcode = shift;
-  $opcode = "REP" if !defined $opcode;
+  $opcode = "REP" if !$opcode;
   my $result = { op => $opcode, payload => { msg => $args, }, };
   return $result;
 }
@@ -341,7 +341,7 @@ sub save_settings {
 
 sub sanitize_for_irc {
   my $text = shift;
-  return unless defined $text;
+  return unless $text;
   $text =~ s/\n/ /g;
   $text = HTML::Entities::decode($text);
   return $text
@@ -388,7 +388,7 @@ sub tick {
 
 sub backfill {
   my $pid = fork();
-  if (defined $pid && $pid == 0) {
+  if ($pid && $pid == 0) {
     exec("./updatedb.pm -s $twitter_cfg_file > /dev/null 2>&1 &");
     exit 0;
   }
@@ -423,14 +423,14 @@ sub chandler {
     foreach (keys %commands) {
       if ($work->{msg} =~ /$_/) {
         my $run = $commands{$_}->{handler};
-        #run command, with regexp matches $1 and $2 if defined (allows bare .command handling).
-        my @result = $run->(defined $1 ? lc $1 : undef , defined $2 ? lc $2 : undef);
+        #run command, with regexp matches $1 and $2 if (allows bare .command handling).
+        my @result = $run->($1 ? lc $1 : undef, $2 ? lc $2 : undef);
 
         my @final;
         foreach (@result) {
           #if item is not a ref, we've gotten an empty response from $run
           if (ref($_)) {
-            $_->{payload}->{target} = $work->{target} if !defined $_->{payload}->{target};
+            $_->{payload}->{target} = $work->{target} if !$_->{payload}->{target};
             push @final, $_;
           }
         }
@@ -471,7 +471,7 @@ $con->reg_cb (read => sub {
   });
 
 #poll for updates/refresh data
-print "Requested dumb bot (-d), not polling for updates.\n" if defined $opt_d;
+print "Requested dumb bot (-d), not polling for updates.\n" if $opt_d;
 my $tick_watcher = AnyEvent->timer(after => 30, interval => 180, cb => \&tick);
 
 #watcher to recieve replies from chandler's processing
@@ -479,7 +479,7 @@ my $w; $w = AnyEvent->io(fh => \*$CHILD, poll => 'r', cb => sub {
   my $msg = <$CHILD>;
 
   #deal with erroneus <$CHILD> read events by just killing the bot
-  if (!defined $msg) {
+  if (!$msg) {
     warn "Chandler crash! Oh dear lord!";
     undef $w;
     $c->broadcast;
