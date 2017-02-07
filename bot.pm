@@ -313,7 +313,7 @@ sub search_generic {
   warn "get_tweets(); error: $@" if $@;
   return unless defined @{$statuses->{statuses}}[0];
   my $r = &find_original(@{$statuses->{statuses}}[0]);
-  return "\x{02}@".$r->{user}->{screen_name}."\x{02}: $r->{full_text}||$r->{text} - http://twitter.com/$r->{user}->{screen_name}/status/$r->{id}";
+  return "\x{02}@".$r->{user}->{screen_name}."\x{02}:".($r->{full_text}||$r->{text})." - http://twitter.com/$r->{user}->{screen_name}/status/$r->{id}";
 }
 
 # chooses retweet text if it exists
