@@ -293,7 +293,7 @@ sub get_status {
   #throws an error if no status is retrieved
   #warn "get_status() error: $@" if $@;
   return unless defined $status;
-  return "\x{02}@".$status->{user}->{screen_name}.":\x{02} ".$status->{full_text} || $status->{text};
+  return "\x{02}@".$status->{user}->{screen_name}.":\x{02} ".($status->{full_text} || $status->{text});
 }
 
 sub search_username {
@@ -304,7 +304,7 @@ sub search_username {
 
   my $statuses = eval { $nt->user_timeline({ id => "$name", count => 1, tweet_mode => 'extended', }); };
   warn "search_username(); error: $@" if $@;
-  return (@$statuses[0]->{full_text} || @$statuses[0]->{text}) if @$statuses;
+  return (@$statuses[0]->{full_text} || @$statuses[0]->{text}) if defined @$statuses;
 }
 
 sub search_generic {
