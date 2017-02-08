@@ -304,6 +304,7 @@ sub search_username {
 
   my $statuses = eval { $nt->user_timeline({ id => "$name", count => 1, tweet_mode => 'extended', }); };
   warn "search_username(); error: $@" if $@;
+  return if $@
   return @$statuses[0]->{full_text} ? @$statuses[0]->{full_text} : @$statuses[0]->{text} if @$statuses;
 }
 
