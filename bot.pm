@@ -124,8 +124,7 @@ if (defined $pid && $pid == 0) {
   $commands{'^\.list$' } = { handler => \&cmd_listwatch,
     friendly => ".list",
     help => ".list - List currently followed users" };          # .list
-  $commands{'^https:\/\/twitter.com\/\w+\/status\/(\d+)$' } = { handler => \&cmd_getstatus,
-    friendly => "Full https://twitter.com/user/status/123456 URL - show tweet", };
+  $commands{'^https:\/\/twitter.com\/\w+\/status\/(\d+)$' } = { handler => \&cmd_getstatus, };
   foreach (keys %commands) {
     push @commands_list, $commands{$_}->{friendly} if defined $commands{$_}->{friendly};
   }
@@ -291,8 +290,9 @@ sub get_status {
   my $id = shift;
   my $status = eval { $nt->show_status({ id => $id, tweet_mode => 'extended', }); };
   #throws an error if no status is retrieved
-  #warn "get_status() error: $@" if $@;
-  return unless defined $status;
+  warn "get_status(); error: $@" if $@;
+  return if $@;
+  return unless defined $status; # sometimes even if there's no error, $status is undefined?
   return "\x{02}@".$status->{user}->{screen_name}.":\x{02} ".($status->{full_text} || $status->{text});
 }
 
@@ -312,6 +312,7 @@ sub search_generic {
   my $name = shift;
   my $statuses = eval { $nt->search({q => $name, lang => "en", count => 1, tweet_mode => 'extended', }); };
   warn "get_tweets(); error: $@" if $@;
+  return if $@;
   return unless defined @{$statuses->{statuses}}[0];
   my $r = &find_original(@{$statuses->{statuses}}[0]);
   return "\x{02}@".$r->{user}->{screen_name}."\x{02}: ".($r->{full_text}||$r->{text})." - http://twitter.com/$r->{user}->{screen_name}/status/$r->{id}";
