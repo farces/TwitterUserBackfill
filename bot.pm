@@ -357,7 +357,7 @@ sub get_timeline_new {
     $result = $nt->home_timeline({ exclude_replies => 1, tweet_mode => "extended" });
   };
 
-  for my $status (@$result) {
+  for my $status (reverse @$result) {
     if ($status->{id} gt $latest_id) {
       $tmp_latest = $status->{id} if $status->{id} gt $tmp_latest;
       my $message = $status->{full_text} ? $status->{full_text} : $status->{text};
