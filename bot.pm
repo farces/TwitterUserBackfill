@@ -363,8 +363,8 @@ sub get_timeline_new {
       my $message = $status->{full_text} ? $status->{full_text} : $status->{text};
       &send_message($bot_settings->{channels}[0], "\x{02}@".$status->{user}->{screen_name}.":\x{02} $message");
       $insert_sth->execute($status->{id},lc $status->{user}->{screen_name}, $status->{full_text}||$status->{text});
-    }
-  }
+    } 
+  } unless @$;
   $latest_id = $tmp_latest;
 }
 
